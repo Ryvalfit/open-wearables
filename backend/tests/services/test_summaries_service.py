@@ -343,6 +343,28 @@ class TestGetActivitySummaries:
         assert len(result.data) == 1
         assert result.data[0].steps == 3000
 
+    def test_includes_days_with_only_a_workout(self, db: Session, service: SummariesService) -> None:
+        user = UserFactory()
+        ds = DataSourceFactory(user=user, provider=ProviderName.STRAVA, source="strava")
+        EventRecordFactory(
+            data_source=ds,
+            category="workout",
+            type="running",
+            start_datetime=_dt("2026-01-01T10:00:00+00:00"),
+            end_datetime=_dt("2026-01-01T11:00:00+00:00"),
+            zone_offset="+00:00",
+        )
+
+        result = service.get_activity_summaries(
+            db,
+            user.id,
+            _dt("2026-01-01T00:00:00+00:00"),
+            _dt("2026-01-02T00:00:00+00:00"),
+            cursor=None,
+            limit=10,
+        )
+        assert [(d.date, d.source.provider, d.steps) for d in result.data] == [(date(2026, 1, 1), "strava", None)]
+
     def test_does_not_return_other_users_data(self, db: Session, service: SummariesService) -> None:
         user_a = UserFactory()
         user_b = UserFactory()
