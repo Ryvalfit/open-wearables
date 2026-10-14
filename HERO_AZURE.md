@@ -29,7 +29,8 @@ Deployment files, controlled migrations, ACR builds, IONOS DNS instructions,
 acceptance and rollback are in [deploy/azure-vm/README.md](deploy/azure-vm/README.md).
 The VM, two OW databases/users and ACR images have been created and verified;
 IONOS DNS, HTTPS and service activation are verified. Hero integration remains pending.
-Production image digests remain unset until the reviewed ACR builds are completed.
+The reviewed ACR builds are complete; immutable runtime image references are
+recorded in deployment-baseline.json and the infrastructure record.
 Device/provider approval and backup/restore exercises remain release gates.
 
 ## Hero connection contract
