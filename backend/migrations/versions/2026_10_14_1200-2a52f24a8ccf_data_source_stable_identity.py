@@ -1,7 +1,7 @@
 """data source stable identity
 
 Revision ID: 2a52f24a8ccf
-Revises: a18e054b6e0f
+Revises: c4e1a7b93d20
 
 """
 
@@ -12,7 +12,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "2a52f24a8ccf"
-down_revision: Union[str, None] = "a18e054b6e0f"
+down_revision: Union[str, None] = "c4e1a7b93d20"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
