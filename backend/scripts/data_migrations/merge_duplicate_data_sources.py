@@ -146,7 +146,8 @@ _RANKED_DUPLICATES = """
                row_number() OVER w AS rn
         FROM event_record e
         JOIN data_source ds ON ds.id = e.data_source_id
-        WHERE NOT EXISTS (
+        -- Meals are unique by external_id, so several can share one interval
+        WHERE e.category <> 'meal' AND NOT EXISTS (
             SELECT 1 FROM multi_device m
             WHERE m.user_id = ds.user_id AND m.provider = ds.provider AND m.category = e.category
               AND m.start_datetime = e.start_datetime AND m.end_datetime = e.end_datetime

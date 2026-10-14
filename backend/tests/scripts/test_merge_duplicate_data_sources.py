@@ -86,6 +86,20 @@ class TestMergeDuplicateDataSources:
         assert db.query(EventRecord).filter(EventRecord.id == dropped_id).one_or_none() is None
         assert db.get(HealthScore, score.id).event_record_id == kept.id
 
+    def test_meals_sharing_an_interval_are_kept(self, db: Session) -> None:
+        user = UserFactory()
+        ds = DataSourceFactory(user=user, provider=ProviderName.APPLE, device_model=None, source="MyFitnessPal")
+        other = DataSourceFactory(user=user, provider=ProviderName.APPLE, device_model=None, source="Cronometer")
+        for source, external_id in ((ds, "breakfast-eggs"), (ds, "breakfast-coffee"), (other, "lunch")):
+            meal = _event(source, category="meal")
+            meal.external_id = external_id
+        db.flush()
+
+        result = merge_duplicate_data_sources(db, dry_run=False)
+
+        assert result["duplicate_events_removed"] == 0
+        assert db.query(EventRecord).filter(EventRecord.category == "meal").count() == 3
+
     def test_dry_run_changes_nothing_and_rerun_is_noop(self, db: Session) -> None:
         ds = DataSourceFactory(provider=ProviderName.POLAR, device_model=None, source=None)
 
