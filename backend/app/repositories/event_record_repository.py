@@ -41,8 +41,6 @@ from app.schemas.model_crud.activities import (
 from app.utils.exceptions import handle_exceptions
 from app.utils.pagination import decode_cursor
 
-# Identity tuple: (user_id, device_model, source)
-
 
 def _nap_condition(is_nap: bool) -> ColumnElement[bool]:
     """Match sleep records by nap flag; a missing detail row or NULL flag counts as main sleep."""

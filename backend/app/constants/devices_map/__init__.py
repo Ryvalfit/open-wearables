@@ -1,9 +1,9 @@
 from .apple import APPLE_DEVICE_NAMES
 from .device_types import (
-    APPLE_SOURCE_APP_PREFIX,
     infer_device_type,
     infer_device_type_from_model,
     infer_device_type_from_source_name,
+    is_apple_own_source,
     is_host_model,
     map_reported_device_type,
     normalize_device_model,
@@ -27,12 +27,12 @@ def resolve_device_name(device_model: str | None) -> str | None:
 
 __all__ = [
     "APPLE_DEVICE_NAMES",
-    "APPLE_SOURCE_APP_PREFIX",
     "DEVICE_NAMES",
     "SAMSUNG_DEVICE_NAMES",
     "infer_device_type",
     "infer_device_type_from_model",
     "infer_device_type_from_source_name",
+    "is_apple_own_source",
     "is_host_model",
     "map_reported_device_type",
     "normalize_device_model",

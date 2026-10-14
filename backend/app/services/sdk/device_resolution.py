@@ -1,6 +1,6 @@
 """Device resolution utilities for mobile SDK data (HealthKit, Health Connect, Samsung Health)."""
 
-from app.constants.devices_map import APPLE_SOURCE_APP_PREFIX, map_reported_device_type
+from app.constants.devices_map import is_apple_own_source, map_reported_device_type
 from app.schemas.enums import DeviceType
 from app.schemas.providers.mobile_sdk import OSVersion, SourceInfo
 
@@ -11,12 +11,15 @@ def _format_os_version(os_version: OSVersion | None) -> str | None:
     return f"{os_version.major_version}.{os_version.minor_version}.{os_version.patch_version}"
 
 
+def _get_source_app_id(source: SourceInfo) -> str | None:
+    return source.app_id or source.bundle_identifier
+
+
 def _get_device_model(source: SourceInfo | None) -> str | None:
     if not source:
         return None
     # Apple's own sources tag some Watch samples with the paired iPhone's model; hardware is the producer
-    app_id = source.app_id or source.bundle_identifier or ""
-    if source.device_hardware_version and app_id.startswith(APPLE_SOURCE_APP_PREFIX):
+    if source.device_hardware_version and is_apple_own_source(_get_source_app_id(source)):
         return source.device_hardware_version
     if source.device_model:
         return source.device_model
@@ -38,11 +41,7 @@ def _get_original_source_name(source: SourceInfo | None) -> str | None:
     # or ``bundleIdentifier`` (HealthKit Source bundle id). Falling back
     # to those keeps the workout's original provenance instead of
     # collapsing it to "unknown".
-    if source.app_id:
-        return source.app_id
-    if source.bundle_identifier:
-        return source.bundle_identifier
-    return None
+    return _get_source_app_id(source)
 
 
 def extract_device_info(source: SourceInfo | None) -> tuple[str | None, str | None, str | None]:
@@ -69,7 +68,7 @@ def extract_device_ids(source: SourceInfo | None) -> tuple[str | None, str | Non
     """
     if not source:
         return None, None, None
-    return source.device_id, source.app_id or source.bundle_identifier, source.device_manufacturer
+    return source.device_id, _get_source_app_id(source), source.device_manufacturer
 
 
 def extract_device_type(source: SourceInfo | None) -> DeviceType | None:

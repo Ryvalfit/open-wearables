@@ -73,8 +73,6 @@ from app.utils.dates import as_utc
 from app.utils.exceptions import handle_exceptions
 from app.utils.pagination import decode_bucket_cursor, decode_cursor
 
-# Identity tuple: (user_id, device_model, source)
-
 
 class WriteCounts(int):
     """Result of a bulk upsert: total rows written, split into new vs updated.
