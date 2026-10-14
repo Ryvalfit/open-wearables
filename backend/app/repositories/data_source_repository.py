@@ -87,9 +87,9 @@ class DataSourceRepository(
     def _match(self, rows: list[DataSource], identity: DataSourceIdentity, stamp: bool = True) -> DataSource | None:
         """Existing row for the identity; with stamp=False, only rows it matches without re-keying them."""
         return (
-            self._find(rows, identity)
+            self._keyed_match(rows, identity)
+            or self._find(rows, identity)
             or self._writer_match(rows, identity)
-            or self._keyed_match(rows, identity)
             or (self._stampable(rows, identity) if stamp else None)
         )
 
@@ -141,7 +141,10 @@ class DataSourceRepository(
 
     @staticmethod
     def _keyed_match(rows: list[DataSource], identity: DataSourceIdentity) -> DataSource | None:
-        """The only keyed row with this model, for a record sent without ids (Samsung step counts)."""
+        """The only keyed row with this model, for a record sent without ids (Samsung step counts).
+
+        Checked before an exact match, so records keep joining it over a legacy row written before the ids arrived.
+        """
         if identity.device_id or identity.source_app_id or not identity.device_model:
             return None
         keyed = [
@@ -206,6 +209,8 @@ class DataSourceRepository(
         New rows are matchable within the batch, so a writer's first records still converge into one row.
         A batch that creates rows takes a per-user lock first and re-reads, so concurrent batches converge too.
         """
+        # Identities without ids last, so they can join keyed rows created in the same batch
+        requests = sorted(requests, key=lambda r: r[0].device_id is None and r[0].source_app_id is None)
         user_ids = {identity.user_id for identity, _ in requests}
         known = self._load(db_session, provider, user_ids)
         # Inserting or stamping changes which rows a concurrent batch matches, so both run under the lock

@@ -192,6 +192,30 @@ class TestDataSourceRepository:
         assert steps.id == keyed.id
         assert ambiguous.id != keyed.id
 
+    def test_record_without_ids_prefers_keyed_row_over_legacy_row(self, db: Session) -> None:
+        user = UserFactory()
+        repo = DataSourceRepository(DataSource)
+        ids = {"user_id": user.id, "provider": ProviderName.SAMSUNG, "device_model": "SM-M127F"}
+        legacy = repo.ensure_data_source(db, **ids, source="m12")
+        keyed = repo.ensure_data_source(
+            db, **ids, source="Kamil's M12", device_id="loGXfm78JC", source_app_id="com.sec.android.app.shealth"
+        )
+
+        steps = repo.ensure_data_source(db, **ids, source="m12")
+
+        assert keyed.id != legacy.id
+        assert steps.id == keyed.id
+
+    def test_records_without_ids_join_keyed_row_created_in_the_same_batch(self, db: Session) -> None:
+        user = UserFactory()
+        repo = DataSourceRepository(DataSource)
+        steps = (user.id, "SM-M127F", "m12", None, None)
+        keyed = (user.id, "SM-M127F", "Kamil's M12", "loGXfm78JC", "com.sec.android.app.shealth")
+
+        result = repo.batch_ensure_data_sources(db, ProviderName.SAMSUNG, None, {steps, keyed})
+
+        assert result[steps] == result[keyed]
+
     def test_writer_row_learns_model_and_matches_unknown_model(self, db: Session) -> None:
         user = UserFactory()
         repo = DataSourceRepository(DataSource)
