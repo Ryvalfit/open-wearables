@@ -1,0 +1,5 @@
+*.env
+.env
+*.rdb
+backups/
+.deployment.lock

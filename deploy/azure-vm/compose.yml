@@ -1,0 +1,144 @@
+name: hero-open-wearables
+
+x-backend: &backend
+  image: ${BACKEND_IMAGE:?Set a verified backend image digest}
+  env_file: backend.env
+  volumes:
+    - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  api:
+    <<: *backend
+    command: ["uv", "run", "fastapi", "run", "app/main.py", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+    restart: unless-stopped
+    mem_limit: 1536m
+    cpus: 1.0
+    depends_on:
+      redis:
+        condition: service_healthy
+      svix:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  worker:
+    <<: *backend
+    # XML/S3 import is outside the initial release; enable its worker separately.
+    command: ["uv", "run", "celery", "-A", "app.main:celery_app", "worker", "--loglevel=warning", "--pool=threads", "--concurrency=4", "--prefetch-multiplier=1", "-Q", "default,sdk_sync,garmin_sync,webhook_sync", "-n", "io@%h"]
+    restart: unless-stopped
+    mem_limit: 2g
+    cpus: 1.0
+    stop_grace_period: 120s
+    depends_on:
+      api:
+        condition: service_healthy
+
+  beat:
+    <<: *backend
+    command: ["uv", "run", "celery", "-A", "app.main:celery_app", "beat", "--loglevel=warning", "--schedule=/state/celerybeat-schedule", "--pidfile="]
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.25
+    volumes:
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+      - beat_data:/state
+    depends_on:
+      api:
+        condition: service_healthy
+
+  bootstrap:
+    <<: *backend
+    profiles: ["maintenance"]
+    command: ["bash", "/hero/bootstrap.sh"]
+    restart: "no"
+    mem_limit: 1g
+    volumes:
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+      - ./bootstrap.sh:/hero/bootstrap.sh:ro
+
+  redis:
+    image: ${REDIS_IMAGE:?Set a verified Redis image digest}
+    env_file: redis.env
+    command: ["sh", "-ec", 'exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes --appendfsync everysec --maxmemory 768mb --maxmemory-policy noeviction']
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 0.5
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -qx PONG']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    logging: *logging
+
+  svix:
+    image: ${SVIX_IMAGE:?Set a verified Svix image digest}
+    env_file: svix.env
+    command: ["--run-migrations"]
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 0.5
+    volumes:
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "svix-server", "healthcheck", "http://localhost:8071"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    logging: *logging
+
+  portal:
+    image: ${FRONTEND_IMAGE:?Set a verified frontend image digest}
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.5
+    environment:
+      NODE_ENV: production
+      VITE_API_URL: https://wearables.herofitness.es
+      PORT: "3000"
+      HOST: 0.0.0.0
+    ports:
+      - "127.0.0.1:3400:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    logging: *logging
+
+  proxy:
+    image: ${CADDY_IMAGE:?Set a verified Caddy image digest}
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?Set the certificate contact email}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    logging: *logging
+
+volumes:
+  redis_data:
+  beat_data:
+  caddy_data:
+  caddy_config:

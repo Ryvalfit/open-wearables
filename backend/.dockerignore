@@ -15,3 +15,10 @@ celerybeat-schedule-wal
 *.log
 *.tmp
 *.bak
+
+# Hero: never bake local credentials or provider key files into an image.
+config/.env
+config/.env.*
+!config/.env.example
+config/*.json
+*.pem

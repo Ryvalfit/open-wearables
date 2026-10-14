@@ -1,0 +1,128 @@
+name: Hero Azure VM preparation
+
+on:
+  push:
+    branches: [codex/azure-0.9.0]
+    paths:
+      - deploy/azure-vm/**
+      - backend/**
+      - frontend/**
+      - .github/workflows/hero-azure-vm.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hero-azure-vm-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'Ryvalfit/open-wearables'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: hero_open_wearables
+          POSTGRES_PASSWORD: ci-disposable-database-password
+          POSTGRES_DB: open_wearables
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hero_open_wearables -d open_wearables"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Validate deployment configuration and refusal paths
+        shell: bash
+        run: |
+          bash -n deploy/azure-vm/{bootstrap,deploy,build-images}.sh
+          python3 - <<'PY'
+          import importlib.util
+          import shutil
+          import tempfile
+          from pathlib import Path
+          source = Path('deploy/azure-vm')
+          spec = importlib.util.spec_from_file_location('preflight', source / 'preflight.py')
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          with tempfile.TemporaryDirectory() as directory:
+              target = Path(directory)
+              replacements = {
+                  'BACKEND_IMAGE': 'example/backend@sha256:' + '0' * 64,
+                  'FRONTEND_IMAGE': 'example/frontend@sha256:' + '1' * 64,
+                  'ACME_EMAIL': 'ops@example.com', 'ADMIN_EMAIL': 'admin@example.com',
+                  'DB_PASSWORD': 'a' * 64, 'REDIS_PASSWORD': 'b' * 64,
+                  'ADMIN_PASSWORD': 'c' * 64, 'SECRET_KEY': 'd' * 128,
+                  'SVIX_JWT_SECRET': 'e' * 64,
+              }
+              for name in ['.env', 'backend.env', 'redis.env', 'svix.env']:
+                  lines = []
+                  for line in (source / (name + '.example')).read_text().splitlines():
+                      if not line or line.startswith('#'):
+                          lines.append(line)
+                          continue
+                      key, _, value = line.partition('=')
+                      if key == 'SVIX_DB_DSN':
+                          value = value.replace('REPLACE_WITH_64_HEX_CHARACTERS', 'f' * 64)
+                      elif key == 'SVIX_REDIS_DSN':
+                          value = value.replace('REPLACE_WITH_64_HEX_CHARACTERS', 'b' * 64)
+                      else:
+                          value = replacements.get(key, value)
+                      lines.append(key + '=' + value)
+                  path = target / name
+                  path.write_text('\n'.join(lines) + '\n')
+                  path.chmod(0o600)
+              module.validate(target)
+              shutil.copy(source / 'compose.yml', target / 'compose.yml')
+              cases = [('backend.env', 'PGSSLMODE=verify-full', 'PGSSLMODE=require'),
+                       ('.env', 'example/backend@sha256:' + '0' * 64, 'example/backend:latest'),
+                       ('redis.env', 'b' * 64, '9' * 64)]
+              for name, original, invalid in cases:
+                  path = target / name
+                  content = path.read_text()
+                  path.write_text(content.replace(original, invalid))
+                  try:
+                      module.validate(target)
+                  except ValueError:
+                      pass
+                  else:
+                      raise RuntimeError('Unsafe configuration accepted: ' + name)
+                  finally:
+                      path.write_text(content)
+              import subprocess
+              # No real secrets are present; no services are started here.
+              subprocess.run(['docker', 'compose', '--env-file', str(target / '.env'),
+                  '-f', str(target / 'compose.yml'), 'config', '--quiet'], check=True)
+          PY
+      - name: Build backend (no push)
+        run: docker build --build-arg GIT_SHA="$GITHUB_SHA" -t hero-ow-backend:ci backend
+      - name: Verify OW migration and initialization on PostgreSQL 16
+        run: |
+          docker run --rm --network host \
+            -e ENVIRONMENT=test -e DB_HOST=127.0.0.1 -e DB_PORT=5432 \
+            -e DB_NAME=open_wearables -e DB_USER=hero_open_wearables \
+            -e DB_PASSWORD=ci-disposable-database-password \
+            -e PGSSLMODE=disable -e PGCONNECT_TIMEOUT=10 \
+            -e SECRET_KEY=ci-disposable-secret-key \
+            -e ADMIN_EMAIL=admin@example.com -e ADMIN_PASSWORD=ci-disposable-admin-password \
+            -e SENTRY_ENABLED=false -e OUTGOING_WEBHOOKS_ENABLED=false \
+            hero-ow-backend:ci bash -ec '
+              uv run alembic upgrade head
+              uv run python scripts/data_migrations/split_google_provider.py
+              uv run python scripts/init_provider_settings.py
+              uv run python scripts/init_device_priorities.py
+              uv run python scripts/init/seed_admin.py
+              uv run python scripts/init/seed_series_types.py
+              uv run python scripts/data_migrations/relabel_ultrahuman_body_temp_to_skin_temp.py
+              uv run python scripts/data_migrations/backfill_whoop_strain_event_record.py
+              uv run python scripts/init/seed_archival_settings.py
+              uv run alembic current
+            '
+          # PGSSLMODE=disable applies only to this disposable CI PostgreSQL.
+          # Production preflight/bootstrap require verify-full.
+      - name: Build frontend (no push)
+        run: docker build --build-arg VITE_API_URL=https://wearables.herofitness.es -t hero-ow-frontend:ci frontend

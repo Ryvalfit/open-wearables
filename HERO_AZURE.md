@@ -16,27 +16,18 @@ No Azure infrastructure has been provisioned by this preparation.
 - Pin production images by digest. `deployment-baseline.json` intentionally has
   no image digests until images have been selected, built and verified.
 
-## Azure work still required
+## Azure VM deployment
 
-Target topology: an HTTPS API, private Celery worker, a single Celery beat
-scheduler, a protected administration portal, PostgreSQL databases for OW and
-Svix, authenticated Redis, and private self-hosted Svix. Flower is optional.
-Choose capacity, network and cost before provisioning. Do not scale persistent
-workers or beat to zero without an explicit reactivation mechanism. Avoid
-concurrent beat instances during revision changes.
+The approved first topology is a dedicated Docker Compose VM using the existing
+Azure PostgreSQL 16 server. The public API is `https://wearables.herofitness.es`;
+the administration portal is private through an SSH tunnel. Redis is persistent
+and authenticated, Svix is private, and a single Celery beat schedules work.
 
-Keep the OW and Svix databases separate from the Hero application database.
-Provision database roles and backups explicitly. Upstream API startup runs
-Alembic and attempts Svix database creation; prepare a controlled bootstrap and
-migration step suitable for managed PostgreSQL and restricted runtime roles.
-Validate PostgreSQL and Redis TLS, certificates, credentials and private routing.
-
-Enable `OUTGOING_WEBHOOKS_ENABLED=true` (upstream defaults to false), configure
-Svix event types and the signed Hero receiver, and verify retry/idempotency.
-Use managed identities and Key Vault for deployment/runtime secrets. Do not
-commit credentials, health payloads, admin passwords or environment files.
-Raw S3 payload storage, SDK S3 offload and Apple XML import are not prerequisites
-for the initial device SDK integration.
+Deployment files, controlled migrations, ACR builds, IONOS DNS instructions,
+acceptance and rollback are in [deploy/azure-vm/README.md](deploy/azure-vm/README.md).
+No Azure resources, database users or DNS records have been created by this work.
+Production image digests remain unset until the reviewed ACR builds are completed.
+Device/provider approval and backup/restore exercises remain release gates.
 
 ## Hero connection contract
 

@@ -6,5 +6,14 @@
   "heroIosSdkVersion": "0.15.0",
   "heroAndroidSdkVersion": "v0.13.1",
   "deploymentStatus": "not-deployed",
-  "containerImageDigests": null
+  "containerImageDigests": null,
+  "topology": "azure-vm-docker-compose",
+  "publicApiUrl": "https://wearables.herofitness.es",
+  "postgresServer": "psql-rvf-prod-neu",
+  "postgresVersion": 16,
+  "infrastructureImageDigests": {
+    "redis": "sha256:2c2dff791878316e3b083188be0d578423b24813cdda5de0e80ea4f7b3e6bfd6",
+    "svix": "sha256:7ba594c766c882dea9c868cd38957755b1d5c8bc5020f81cf5521ba5ab5adc11",
+    "caddy": "sha256:685ae3d7c34d9b5f8caeddc5d14051db7bbd88ff1f5a2fa0c16bd8ca328fb7af"
+  }
 }
