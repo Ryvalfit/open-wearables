@@ -5,7 +5,7 @@ from sqlalchemy import CursorResult, and_, asc, delete, text
 from sqlalchemy.dialects.postgresql import insert
 
 from app.constants.devices_map import infer_device_type, is_host_model
-from app.constants.sdk_providers import sdk_providers
+from app.constants.sdk_providers import SDK_PROVIDERS
 from app.database import DbSession
 from app.models import DataSource, HealthScore, ProviderPriority
 from app.repositories.provider_priority_repository import ProviderPriorityRepository
@@ -317,7 +317,7 @@ class DataSourceRepository(
     @staticmethod
     def next_device_type(provider: ProviderName, current: str | None, resolved: DeviceType) -> str | None:
         """Cloud rows take the inferred type; SDK rows only upgrade from unset/"other"."""
-        if provider.value not in sdk_providers():
+        if provider.value not in SDK_PROVIDERS:
             return resolved.value if resolved != DeviceType.UNKNOWN else None
         if current in (None, DeviceType.OTHER) and resolved not in (DeviceType.UNKNOWN, current):
             return resolved.value

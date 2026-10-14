@@ -6,9 +6,13 @@ from typing import Any, cast
 
 from celery import Celery, signals
 from celery import current_app as current_celery_app
+from celery.concurrency import get_implementation
+from celery.concurrency.prefork import TaskPool as PreforkPool
 from celery.schedules import crontab
 
 from app.config import settings
+from app.extensions import collect_beat_schedule, collect_event_handlers, events, get_active_extensions
+from app.integrations.otel import init_otel, shutdown_otel
 from app.services import raw_payload_storage
 from app.utils.config_utils import LogFormat
 from app.utils.logging_setup import configure_logging
@@ -68,6 +72,58 @@ def setup_celery_logging(**kwargs) -> None:
     getLogger("celery.app.trace").addFilter(_WebhookTraceFilter())
 
     configure_logging()
+
+
+_worker_service_name = "open-wearables-worker"
+
+
+def _worker_service_name_for(hostname: str | None) -> str:
+    # scripts/start/worker.sh names its workers io@%h and cpu@%h.
+    prefix = (hostname or "").split("@", 1)[0]
+    return f"open-wearables-worker-{prefix}" if prefix and prefix != "celery" else "open-wearables-worker"
+
+
+def _uses_prefork(pool_cls: Any) -> bool:
+    try:
+        # Resolves aliases such as "prefork" and "processes" and "module:Class" paths.
+        pool = get_implementation(pool_cls) if isinstance(pool_cls, str) else pool_cls
+    except Exception:
+        return False
+    return isinstance(pool, type) and issubclass(pool, PreforkPool)
+
+
+@signals.worker_init.connect
+def init_worker_log_export(sender: Any, **kwargs) -> None:
+    """Start OTel log export in thread and solo pool workers.
+
+    Prefork workers start it in each child instead (worker_process_init): the export
+    thread of a provider created here would not survive the fork.
+    """
+    global _worker_service_name
+    _worker_service_name = _worker_service_name_for(getattr(sender, "hostname", None))
+    if not _uses_prefork(getattr(sender, "pool_cls", "")):
+        init_otel(_worker_service_name)
+
+
+@signals.worker_process_init.connect
+def init_worker_process_log_export(**kwargs) -> None:
+    init_otel(_worker_service_name)
+
+
+@signals.worker_process_shutdown.connect
+def stop_worker_process_log_export(**kwargs) -> None:
+    # Prefork children leave through os._exit, which skips atexit handlers.
+    shutdown_otel()
+
+
+@signals.worker_shutdown.connect
+def stop_worker_log_export(**kwargs) -> None:
+    shutdown_otel()
+
+
+@signals.beat_init.connect
+def init_beat_log_export(**kwargs) -> None:
+    init_otel("open-wearables-beat")
 
 
 @signals.worker_ready.connect
@@ -156,7 +212,11 @@ def create_celery() -> Celery:
         celery_app.conf.broker_use_ssl = ssl_options
         celery_app.conf.redis_backend_use_ssl = ssl_options
 
-    celery_app.autodiscover_tasks(["app.integrations.celery.tasks", "app.integrations.celery.tasks.garmin"])
+    extensions = get_active_extensions()
+    celery_app.autodiscover_tasks(
+        ["app.integrations.celery.tasks", "app.integrations.celery.tasks.garmin"]
+        + [package for extension in extensions for package in extension.celery_task_packages]
+    )
 
     celery_app.conf.beat_schedule = {
         "sync-all-users-periodic": {
@@ -217,5 +277,15 @@ def create_celery() -> Celery:
             "args": (),
             "kwargs": {"event": "daily"},
         }
+
+    event_handlers = collect_event_handlers()
+    events.register(event_handlers)
+    if event_handlers:
+        celery_app.conf.beat_schedule["dispatch-extension-events"] = {
+            "task": "app.integrations.celery.tasks.extension_events_task.dispatch_extension_events",
+            "schedule": float(settings.extension_event_sweep_interval_seconds),
+        }
+
+    celery_app.conf.beat_schedule.update(collect_beat_schedule(reserved=set(celery_app.conf.beat_schedule)))
 
     return celery_app

@@ -813,8 +813,11 @@ class DataPointSeriesRepository(
             db_session.query(
                 DataSource.provider,
                 SeriesTypeDefinition.code,
-                func.count(self.model.id).label("count"),
+                # count(*), not count(id): id is not in the (source, type, time) index,
+                # so counting it read every row from the table instead of the index.
+                func.count().label("count"),
             )
+            .select_from(self.model)
             .join(DataSource, self.model.data_source_id == DataSource.id)
             .join(SeriesTypeDefinition, self.model.series_type_definition_id == SeriesTypeDefinition.id)
             .filter(DataSource.user_id == user_id)
@@ -826,7 +829,7 @@ class DataPointSeriesRepository(
 
         results = (
             query.group_by(DataSource.provider, SeriesTypeDefinition.code)
-            .order_by(DataSource.provider, func.count(self.model.id).desc())
+            .order_by(DataSource.provider, func.count().desc())
             .all()
         )
         return [(provider, code, count) for provider, code, count in results]
@@ -848,8 +851,10 @@ class DataPointSeriesRepository(
         bucket_start = utc_bucket_start(bucket, self.model.recorded_at)
         key_column = timeline_key_column(group_by)
 
-        query = db_session.query(key_column, bucket_start, func.count(self.model.id).label("count")).join(
-            DataSource, self.model.data_source_id == DataSource.id
+        query = (
+            db_session.query(key_column, bucket_start, func.count().label("count"))
+            .select_from(self.model)
+            .join(DataSource, self.model.data_source_id == DataSource.id)
         )
         if group_by is TimelineGroupBy.SERIES_TYPE:
             query = query.join(SeriesTypeDefinition, self.model.series_type_definition_id == SeriesTypeDefinition.id)
@@ -929,6 +934,22 @@ class DataPointSeriesRepository(
 
         rows = db_session.execute(sql, params).fetchall()
         return {UUID(str(record_id)): int(avg) for record_id, avg in rows}
+
+    def _local_day_window(
+        self, local_date: ColumnElement, start_date: datetime, end_date: datetime
+    ) -> list[ColumnElement[bool]]:
+        """Samples whose local date falls in [start, end).
+
+        Bounded on `recorded_at` as well, a day wider each side to cover any offset:
+        the local date is an expression no index can use, so without it a window
+        scanned from its start to the newest sample.
+        """
+        return [
+            self.model.recorded_at >= start_date - timedelta(days=1),
+            self.model.recorded_at < end_date + timedelta(days=1),
+            local_date >= cast(start_date, Date),
+            local_date < cast(end_date, Date),
+        ]
 
     def get_daily_activity_aggregates(
         self,
@@ -1023,9 +1044,7 @@ class DataPointSeriesRepository(
             .join(DataSource, self.model.data_source_id == DataSource.id)
             .filter(
                 DataSource.user_id == user_id,
-                self.model.recorded_at >= start_date - timedelta(days=1),
-                local_date >= cast(start_date, Date),
-                local_date < cast(end_date, Date),
+                *self._local_day_window(local_date, start_date, end_date),
                 self.model.series_type_definition_id.in_(
                     [steps_id, energy_id, basal_energy_id, hr_id, distance_id, flights_id, active_time_id]
                 ),
@@ -1110,9 +1129,7 @@ class DataPointSeriesRepository(
             .join(DataSource, self.model.data_source_id == DataSource.id)
             .filter(
                 DataSource.user_id == user_id,
-                self.model.recorded_at >= start_date - timedelta(days=1),
-                local_date >= cast(start_date, Date),
-                local_date < cast(end_date, Date),
+                *self._local_day_window(local_date, start_date, end_date),
                 self.model.series_type_definition_id == steps_id,
                 self.model.is_daily_total.isnot(True),
             )
@@ -1213,9 +1230,7 @@ class DataPointSeriesRepository(
             .join(DataSource, self.model.data_source_id == DataSource.id)
             .filter(
                 DataSource.user_id == user_id,
-                self.model.recorded_at >= start_date - timedelta(days=1),
-                local_date >= cast(start_date, Date),
-                local_date < cast(end_date, Date),
+                *self._local_day_window(local_date, start_date, end_date),
                 self.model.series_type_definition_id == hr_id,
             )
             .group_by(

@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e -x
 
+scripts/start/install_extensions.sh
+
 # Ensure svix database exists (idempotent)
 echo 'Ensuring svix database...'
 uv run python scripts/init/create_svix_db.py
@@ -51,6 +53,14 @@ uv run python scripts/data_migrations/relabel_ultrahuman_hrv_sdnn_to_rmssd.py \
     || echo "Warning: Ultrahuman HRV relabel failed — will retry on next startup."
 
 
+# TODO: Remove this after ~2027-01-01 once all deployments have migrated.
+# Relabels Ultrahuman active minutes stored as active_time (id=88) to exercise_time
+# (id=84). Scoped to provider='ultrahuman', no-op once corrected.
+echo 'Running Ultrahuman active_time->exercise_time relabel...'
+uv run python scripts/data_migrations/relabel_ultrahuman_active_time_to_exercise_time.py \
+    || echo "Warning: Ultrahuman active time relabel failed — will retry on next startup."
+
+
 # TODO: Remove this after ~2026-12-01 once all deployments have migrated.
 # Links legacy Whoop workout strain scores to their event records; without it they stay
 # indistinguishable from the per-day cycle strain. Idempotent, no-op once linked.
@@ -97,7 +107,7 @@ done || echo "Warning: Could not register webhook event types with Svix. Will re
 # Init app
 echo "Starting the FastAPI application..."
 if [ "$ENVIRONMENT" = "local" ]; then
-    uv run fastapi dev app/main.py --host 0.0.0.0 --port "${API_PORT:-8000}"
+    exec uv run fastapi dev app/main.py --host 0.0.0.0 --port "${API_PORT:-8000}"
 else
-    uv run fastapi run app/main.py --host 0.0.0.0 --port "${API_PORT:-8000}"
+    exec uv run fastapi run app/main.py --host 0.0.0.0 --port "${API_PORT:-8000}"
 fi
