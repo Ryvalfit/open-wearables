@@ -1,11 +1,11 @@
 # Hero Open Wearables on an Azure VM
 
-Status: deployment preparation, not provisioned or deployed. VM + existing Azure
+Status: VM and images provisioned; the application is not deployed. VM + existing Azure
 PostgreSQL was approved in the Hero release conversation on 2026-10-14.
 
 ## Architecture and initial capacity
 
-One Linux amd64 VM, initially Standard_D2as_v5 (2 vCPU, 8 GiB) in North Europe.
+One Linux amd64 VM, Standard_D2as_v6 (2 vCPU, 8 GiB) in North Europe.
 Use Docker Engine and Compose >= 2.24, Python 3, util-linux/flock, OpenSSL and an
 updated OS CA bundle. The Compose file is standalone, not an upstream override.
 
@@ -109,7 +109,10 @@ references to `deploy/azure-vm/release-images.env`. Record the source SHA, ACR b
 results and digests before deploying. No images are built on the production VM.
 The upstream Dockerfiles still use mutable base-image tags; runtime digest pinning
 fixes the deployed artifact, not bit-for-bit reproducibility of a later rebuild.
-A failed build does not change production. This script has not yet been run in ACR.
+A failed build does not change production. Initial images were built in ACR from source 91462a6b0e1b54d7032bc2ae41e13244868ecf10
+using immutable remote Git contexts; runs cg7 and cg8 succeeded. Their immutable
+references are recorded in infrastructure-record.json and .env.example. The local
+archive build helper remains available for subsequent reviewed releases.
 
 ## Configure the VM
 
@@ -231,3 +234,29 @@ References: [Azure PostgreSQL TLS](https://learn.microsoft.com/en-us/azure/postg
 [private networking](https://learn.microsoft.com/en-gb/azure/postgresql/network/concepts-networking-private),
 [ACR CLI](https://learn.microsoft.com/en-us/cli/azure/acr),
 [Caddy automatic HTTPS](https://caddyserver.com/docs/automatic-https).
+
+
+## Provisioned infrastructure (2026-10-14)
+
+- Resource group: `rg-rvf-prod-neu-wearables`.
+- VM: `vm-rvf-wearables-prod-neu`, Ubuntu 24.04, 2 vCPU / 8 GiB, Trusted Launch.
+- Static public IPv4: `20.234.120.170`; private IPv4: `10.10.3.4`.
+- New nondelegated subnet: `10.10.3.0/26` in the existing data VNet.
+- OS disk: 64 GiB; durable Docker data disk: 128 GiB, Standard SSD LRS.
+- Only TCP 80/443 are allowed from the Internet. SSH requires private-network access.
+- System-assigned identity has ACR pull and read access to the six dedicated OW
+  Key Vault secrets. Temporary read access to Hero's administrator connection
+  is removed after database preparation; no Hero credential is copied into OW config.
+- Backend/frontend ACR publication and VM identity-based digest pulls are verified.
+- IONOS `A wearables → 20.234.120.170` is pending. No public certificate issued yet.
+- PostgreSQL private DNS and verified TLS work, but it has only 50 connection slots
+  and initially rejected normal-user login due to existing shared usage. After usage
+  fell, both scoped logins and reciprocal database isolation were verified. Increase
+  connection headroom before activating OW; the proposed 100-slot change requires
+  a shared PostgreSQL restart and is awaiting explicit user approval.
+- No application containers, OW migrations, device traffic or Hero config changes
+  have been activated. Production monitoring and backup/restore remain pending.
+
+VM host bootstrap is captured in cloud-init.yml. Infrastructure/image metadata is
+captured in infrastructure-record.json; neither file contains credentials. Failed v5
+allocation attempts created no VMs; the final v6 VM is the only new compute instance.

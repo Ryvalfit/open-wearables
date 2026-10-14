@@ -1,7 +1,8 @@
 # Hero Azure deployment baseline
 
 This fork prepares a reproducible Open Wearables deployment for Hero 5.0.
-No Azure infrastructure has been provisioned by this preparation.
+The Azure VM, private database access and ACR images are provisioned. The
+application is not deployed; DNS and the shared PostgreSQL capacity decision are pending.
 
 ## Source and update policy
 
@@ -25,7 +26,8 @@ and authenticated, Svix is private, and a single Celery beat schedules work.
 
 Deployment files, controlled migrations, ACR builds, IONOS DNS instructions,
 acceptance and rollback are in [deploy/azure-vm/README.md](deploy/azure-vm/README.md).
-No Azure resources, database users or DNS records have been created by this work.
+The VM, two OW databases/users and ACR images have been created and verified;
+the IONOS DNS record and application activation remain pending.
 Production image digests remain unset until the reviewed ACR builds are completed.
 Device/provider approval and backup/restore exercises remain release gates.
 

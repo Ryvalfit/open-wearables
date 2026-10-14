@@ -1,0 +1,32 @@
+{
+  "resourceGroup": "rg-rvf-prod-neu-wearables",
+  "vmName": "vm-rvf-wearables-prod-neu",
+  "location": "northeurope",
+  "vmSize": "Standard_D2as_v6",
+  "publicIpv4": "20.234.120.170",
+  "privateIpv4": "10.10.3.4",
+  "subnet": "vnet-rvf-prod-neu-data/snet-open-wearables",
+  "subnetPrefix": "10.10.3.0/26",
+  "adminUsername": "heroops",
+  "sshPublicAccess": false,
+  "managedIdentityPrincipalId": "243e2f58-1072-4565-9e89-aee03eadabe3",
+  "osImage": "Canonical:ubuntu-24_04-lts:server:24.04.202609040",
+  "osDiskGiB": 64,
+  "dataDiskGiB": 128,
+  "storageSku": "StandardSSD_LRS",
+  "imageSourceCommit": "91462a6b0e1b54d7032bc2ae41e13244868ecf10",
+  "backendImage": "acrrvfdbmigprodneu.azurecr.io/open-wearables/backend@sha256:d120262e630848f9367d879b014865550cc3ad532b7acc9852365bfd4dd9686c",
+  "frontendImage": "acrrvfdbmigprodneu.azurecr.io/open-wearables/frontend@sha256:b8bde42434c3c0eb34f71c7303cde1245b38986d03f961bafda8b3892fe72176",
+  "acrBuildRuns": {
+    "backend": "cg7",
+    "frontend": "cg8"
+  },
+  "applicationDeployed": false,
+  "databaseLoginStatus": "verified-with-private-dns-and-tls",
+  "dnsStatus": "pending-user-IONOS-record",
+  "vmImagePullVerified": true,
+  "databaseIsolationVerified": true,
+  "sharedPostgresMaxConnections": 50,
+  "sharedPostgresCapacityChange": "100-and-restart-awaiting-user-approval",
+  "temporaryAdministratorSecretPermissionRemoved": true
+}
