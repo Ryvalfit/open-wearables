@@ -21,13 +21,30 @@
     "backend": "cg7",
     "frontend": "cg8"
   },
-  "applicationDeployed": false,
+  "applicationDeployed": true,
   "databaseLoginStatus": "verified-with-private-dns-and-tls",
-  "dnsStatus": "pending-user-IONOS-record",
+  "dnsStatus": "verified-Google-and-Cloudflare-ttl300",
   "vmImagePullVerified": true,
   "databaseIsolationVerified": true,
   "sharedPostgresMaxConnections": 100,
   "sharedPostgresCapacityChange": "user-approved-100-applied-and-restarted",
   "temporaryAdministratorSecretPermissionRemoved": true,
-  "sharedPostgresCapacityGate": "resolved"
+  "sharedPostgresCapacityGate": "resolved",
+  "applicationStatus": "active-hero-integration-pending",
+  "dnsTtlSeconds": 300,
+  "httpsStatus": "certificate-and-hostname-verified",
+  "certificateExpires": "Jan 12 15:07:12 2027 GMT",
+  "alembicHead": "a7c3e9f1b2d4",
+  "adminLoginVerified": true,
+  "privatePortalVerified": true,
+  "workerPingVerified": true,
+  "workerQueues": [
+    "default",
+    "sdk_sync",
+    "garmin_sync",
+    "webhook_sync"
+  ],
+  "ownPublicSchemaUsageAndCreateGranted": true,
+  "heroIntegrationConfigured": false,
+  "deviceIngestionVerified": false
 }

@@ -1,6 +1,6 @@
 # Hero Open Wearables on an Azure VM
 
-Status: VM and images provisioned; the application is not deployed. VM + existing Azure
+Status: service active over HTTPS; Hero integration and device acceptance pending. VM + existing Azure
 PostgreSQL was approved in the Hero release conversation on 2026-10-14.
 
 ## Architecture and initial capacity
@@ -78,12 +78,19 @@ REVOKE ALL ON DATABASE open_wearables FROM PUBLIC;
 REVOKE ALL ON DATABASE svix FROM PUBLIC;
 GRANT CONNECT, TEMPORARY ON DATABASE open_wearables TO hero_open_wearables;
 GRANT CONNECT, TEMPORARY ON DATABASE svix TO hero_svix;
+\connect open_wearables
+GRANT USAGE, CREATE ON SCHEMA public TO hero_open_wearables;
+\connect svix
+GRANT USAGE, CREATE ON SCHEMA public TO hero_svix;
 ```
 
 Review existing objects before executing: these commands intentionally fail on
 name collisions rather than modifying an existing role/database. Generate independent
 64-character hex passwords using `openssl rand -hex 32`. The OW upstream builds its
 DB URI without percent-encoding; the hex format avoids reserved URI characters.
+Azure may keep public schema ownership with azure_pg_admin even in a new database;
+the explicit schema grants above are required for both migration runners. Verify
+USAGE/CREATE on each owning database before starting Svix or OW bootstrap.
 The two roles own only their own databases; neither receives server administration
 or Hero schema permissions. Runtime API startup does not create databases or migrate.
 The owner roles also perform maintenance migrations in this first deployment.
@@ -244,11 +251,12 @@ References: [Azure PostgreSQL TLS](https://learn.microsoft.com/en-us/azure/postg
 - New nondelegated subnet: `10.10.3.0/26` in the existing data VNet.
 - OS disk: 64 GiB; durable Docker data disk: 128 GiB, Standard SSD LRS.
 - Only TCP 80/443 are allowed from the Internet. SSH requires private-network access.
-- System-assigned identity has ACR pull and read access to the six dedicated OW
-  Key Vault secrets. Temporary read access to Hero's administrator connection
+- System-assigned identity has ACR pull and read access to seven dedicated OW
+  Key Vault entries (six credentials and the selected administrator/contact email). Temporary read access to Hero's administrator connection
   is removed after database preparation; no Hero credential is copied into OW config.
 - Backend/frontend ACR publication and VM identity-based digest pulls are verified.
-- IONOS `A wearables → 20.234.120.170` is pending. No public certificate issued yet.
+- IONOS `A wearables → 20.234.120.170`, TTL 300, verified through Google/Cloudflare.
+  Public HTTPS and HTTP redirect verified; certificate expires 2027-01-12.
 - PostgreSQL private DNS, verified TLS, scoped logins and reciprocal database
   isolation are verified. The server initially had 50 slots and rejected normal
   connections during a shared usage peak. With explicit user approval,
@@ -256,9 +264,37 @@ References: [Azure PostgreSQL TLS](https://learn.microsoft.com/en-us/azure/postg
   the active value and Azure reports Ready without pending changes. Hero's public
   GraphQL endpoint also responded successfully after restart. Monitor actual pool
   usage during OW activation; this does not replace workload/backup acceptance.
-- No application containers, OW migrations, device traffic or Hero config changes
-  have been activated. Production monitoring and backup/restore remain pending.
+- All seven service containers are running; API/Redis/Svix health checks pass.
+  Worker ping and the four selected queues verified; one beat scheduler runs.
+  OW migrations are at a7c3e9f1b2d4. Administrator login and protected endpoint
+  rejection verified; private portal serves the public API runtime URL correctly.
+  Real device ingestion and Hero config have not been activated. Production
+  monitoring and backup/restore acceptance remain pending.
 
 VM host bootstrap is captured in cloud-init.yml. Infrastructure/image metadata is
 captured in infrastructure-record.json; neither file contains credentials. Failed v5
 allocation attempts created no VMs; the final v6 VM is the only new compute instance.
+
+
+## Activation fixes and evidence
+
+The pinned Svix image uses a default command rather than an entrypoint; the Compose
+service explicitly sets entrypoint=["svix-server"] before --run-migrations. This
+was verified by actual container startup, Svix migrations and its health check.
+Azure kept public schema ownership with azure_pg_admin on both new databases; the
+owning roles needed explicit USAGE/CREATE grants before migration. No grants were
+made on Hero schemas. Temporary administrator-secret read access was removed after
+the grants, and no administrator password is in the OW runtime files.
+
+Acceptance measured on 2026-10-14: public root HTTP200 / expected JSON, HTTP-to-HTTPS
+redirect, valid certificate/hostname, anonymous administrator endpoint HTTP401,
+seeded administrator login, loopback portal HTML/runtime URL, Celery ping/queues
+and committed Alembic head. These checks do not attest real SDK ingestion, provider
+OAuth credentials or signed delivery into Hero. No Hero release pipeline, app-store
+submission or dev/main merge was performed as part of service activation.
+
+The administrator/contact email is stored in OW-ADMIN-EMAIL and the bootstrap
+password in OW-ADMIN-PASSWORD in the existing Key Vault. Use the private-network
+SSH tunnel described above for portal access; no public SSH or portal port opened.
+Changing the portal password does not automatically rotate the bootstrap Key Vault
+value, and editing ADMIN_PASSWORD does not reset an existing developer account.

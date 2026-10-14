@@ -84,6 +84,7 @@ services:
   svix:
     image: ${SVIX_IMAGE:?Set a verified Svix image digest}
     env_file: svix.env
+    entrypoint: ["svix-server"]
     command: ["--run-migrations"]
     restart: unless-stopped
     mem_limit: 1g
