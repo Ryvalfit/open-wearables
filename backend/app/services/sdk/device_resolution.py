@@ -1,6 +1,6 @@
 """Device resolution utilities for mobile SDK data (HealthKit, Health Connect, Samsung Health)."""
 
-from app.constants.devices_map import map_reported_device_type
+from app.constants.devices_map import APPLE_SOURCE_APP_PREFIX, map_reported_device_type
 from app.schemas.enums import DeviceType
 from app.schemas.providers.mobile_sdk import OSVersion, SourceInfo
 
@@ -14,6 +14,10 @@ def _format_os_version(os_version: OSVersion | None) -> str | None:
 def _get_device_model(source: SourceInfo | None) -> str | None:
     if not source:
         return None
+    # Apple's own sources tag some Watch samples with the paired iPhone's model; hardware is the producer
+    app_id = source.app_id or source.bundle_identifier or ""
+    if source.device_hardware_version and app_id.startswith(APPLE_SOURCE_APP_PREFIX):
+        return source.device_hardware_version
     if source.device_model:
         return source.device_model
     if source.product_type:

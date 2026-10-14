@@ -9,6 +9,8 @@ from app.constants.devices_map import (
     normalize_device_model,
 )
 from app.schemas.enums import DeviceType, ProviderName
+from app.schemas.providers.mobile_sdk import SourceInfo
+from app.services.sdk.device_resolution import extract_device_info
 
 
 class TestInferDeviceTypeFromModel:
@@ -149,3 +151,19 @@ class TestReportedDeviceType:
 )
 def test_normalize_device_model(raw: str | None, expected: str | None) -> None:
     assert normalize_device_model(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("app_id", "device_model", "hardware", "expected"),
+    [
+        ("com.apple.health.0BA80355-AAAA", "iPhone16,1", "Watch6,2", "Watch6,2"),
+        ("com.apple.health.0BA80355-AAAA", "iPhone16,1", None, "iPhone16,1"),
+        ("com.apple.BTLEServer", "Watch7,9", "00760690.03", "Watch7,9"),
+        ("com.ouraring.oura", "iPhone15,2", "iPhone15,2", "iPhone15,2"),
+    ],
+)
+def test_sdk_device_model_uses_hardware_only_for_apple_own_sources(
+    app_id: str, device_model: str, hardware: str | None, expected: str
+) -> None:
+    source = SourceInfo(app_id=app_id, device_model=device_model, device_hardware_version=hardware)
+    assert extract_device_info(source)[0] == expected
