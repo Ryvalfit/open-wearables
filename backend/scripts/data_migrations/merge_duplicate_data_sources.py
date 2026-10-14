@@ -16,6 +16,9 @@ and the rest are deleted (phase 1 does the same for the copies it drops). Sample
 touched here: overlapping samples across sources are different writers, not duplicates.
 
 Idempotent: renamed rows no longer match phase 1 and duplicates are gone, so re-runs are no-ops.
+Phase 2 scans every event, so it only runs while phase 1 finds sources; later startups skip it.
+Samples, archive rows and duplicate events are processed in committed batches, so a run that is
+interrupted keeps its progress and the next one continues where it stopped.
 
 Usage (inside Docker):
     docker compose exec app uv run python scripts/data_migrations/merge_duplicate_data_sources.py --dry-run
@@ -24,6 +27,7 @@ Usage (inside Docker):
 
 import argparse
 from logging import getLogger
+from typing import NamedTuple
 from uuid import UUID
 
 from sqlalchemy import text
@@ -32,10 +36,15 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import TextClause
 
 from app.constants.devices_map.device_types import DEVICE_MODEL_PLACEHOLDERS
-from app.database import SessionLocal
+from app.database import engine
 from app.utils.sentry_helpers import log_and_capture_error
 
 logger = getLogger(__name__)
+
+# Rows per committed batch when moving samples/archive and deleting duplicate events
+_BATCH_SIZE = 50_000
+# A live sync holding a lock fails the step instead of stalling startup; the next run retries it
+_LOCK_TIMEOUT = text("SET lock_timeout = '10s'")
 
 # Google Health dataSource.platform values the old extraction stored as the device model
 GOOGLE_PLATFORMS = (
@@ -75,7 +84,43 @@ _RENAME = text("UPDATE data_source SET device_model = :model, source = :source W
 # Per-event detail tables, keyed by record_id and cascade-deleted with their event
 _DETAIL_TABLES = ("sleep_details", "workout_details", "menstrual_cycle_details")
 
-# Move a data source's records into another; conflicting copies in the source are dropped first.
+# Per-source tables batched along their unique index (data_source_id, *key), so every batch is an index range
+_BATCHED_TABLES = {
+    "data_point_series": ("series_type_definition_id", "recorded_at"),
+    "data_point_series_archive": ("series_type_definition_id", "bucket_start_at", "aggregation_type"),
+}
+
+
+class _BatchStatements(NamedTuple):
+    nth_key: TextClause
+    last_key: TextClause
+    drop_copies: TextClause
+    move: TextClause
+
+
+def _batch_statements(table: str, key: tuple[str, ...]) -> _BatchStatements:
+    """Key of the batch's last row, then within src up to it: drop copies the target holds, move the rest."""
+    columns = ", ".join(key)
+    up_to_bound = (
+        f"s.data_source_id = :src AND ({', '.join(f's.{c}' for c in key)}) <= ({', '.join(f':{c}' for c in key)})"
+    )
+    same_key = " AND ".join(f"t.{c} = s.{c}" for c in key)
+    return _BatchStatements(
+        text(f"SELECT {columns} FROM {table} WHERE data_source_id = :src ORDER BY {columns} OFFSET :offset LIMIT 1"),
+        text(f"SELECT {columns} FROM {table} WHERE data_source_id = :src ORDER BY {columns} DESC LIMIT 1"),
+        text(f"""
+            DELETE FROM {table} s
+            WHERE {up_to_bound}
+              AND EXISTS (SELECT 1 FROM {table} t WHERE t.data_source_id = :tgt AND {same_key})
+        """),
+        text(f"UPDATE {table} s SET data_source_id = :tgt WHERE {up_to_bound}"),
+    )
+
+
+_BATCHES = [_batch_statements(table, key) for table, key in _BATCHED_TABLES.items()]
+
+# Move a data source's events, scores and itself into another, after its samples and archive moved.
+# Conflicting copies in the source are dropped first.
 _MERGE_STEPS = [
     text("""
         UPDATE health_score h SET event_record_id = t.id
@@ -105,19 +150,6 @@ _MERGE_STEPS = [
           AND t.start_datetime = s.start_datetime AND t.end_datetime = s.end_datetime
     """),
     text("UPDATE event_record SET data_source_id = :tgt WHERE data_source_id = :src"),
-    text("""
-        DELETE FROM data_point_series s USING data_point_series t
-        WHERE s.data_source_id = :src AND t.data_source_id = :tgt
-          AND t.series_type_definition_id = s.series_type_definition_id AND t.recorded_at = s.recorded_at
-    """),
-    text("UPDATE data_point_series SET data_source_id = :tgt WHERE data_source_id = :src"),
-    text("""
-        DELETE FROM data_point_series_archive s USING data_point_series_archive t
-        WHERE s.data_source_id = :src AND t.data_source_id = :tgt
-          AND t.series_type_definition_id = s.series_type_definition_id
-          AND t.bucket_start_at = s.bucket_start_at AND t.aggregation_type = s.aggregation_type
-    """),
-    text("UPDATE data_point_series_archive SET data_source_id = :tgt WHERE data_source_id = :src"),
     text("UPDATE health_score SET data_source_id = :tgt WHERE data_source_id = :src"),
     text("""
         UPDATE data_source t SET
@@ -130,9 +162,13 @@ _MERGE_STEPS = [
 ]
 
 # Duplicate events across a user's sources of one provider, ranked most specific source first.
-# Groups spanning several device ids are different devices' records, not copies, so they are left alone.
+# Only users with several sources of a provider can have them. Groups spanning several device ids
+# are different devices' records, not copies, so they are left alone.
 _RANKED_DUPLICATES = """
-    WITH multi_device AS (
+    WITH multi_source AS (
+        SELECT user_id, provider FROM data_source GROUP BY user_id, provider HAVING count(*) > 1
+    ),
+    multi_device AS (
         SELECT ds.user_id, ds.provider, e.category, e.start_datetime, e.end_datetime
         FROM event_record e
         JOIN data_source ds ON ds.id = e.data_source_id
@@ -146,6 +182,7 @@ _RANKED_DUPLICATES = """
                row_number() OVER w AS rn
         FROM event_record e
         JOIN data_source ds ON ds.id = e.data_source_id
+        JOIN multi_source ms ON ms.user_id = ds.user_id AND ms.provider = ds.provider
         -- Meals are unique by external_id, so several can share one interval
         WHERE e.category <> 'meal' AND NOT EXISTS (
             SELECT 1 FROM multi_device m
@@ -162,49 +199,101 @@ _RANKED_DUPLICATES = """
     )
 """
 _DUPLICATE_COUNT = text(_RANKED_DUPLICATES + "SELECT count(*) FROM ranked WHERE rn > 1")
-_DUPLICATE_SCORES = text(
-    _RANKED_DUPLICATES
-    + """
-    UPDATE health_score h SET event_record_id = r.keep_id
-    FROM ranked r
-    WHERE r.rn > 1 AND h.event_record_id = r.id
-      AND NOT EXISTS (
-          SELECT 1 FROM health_score h2
-          WHERE h2.event_record_id = r.keep_id AND h2.provider = h.provider AND h2.category = h.category
-      )
-"""
-)
-# Details of the best-ranked dropped copy move to a kept event that has none
-_DUPLICATE_DETAILS = [
+
+# The ranking scans every event, so it runs once into a session temp table that the steps below read
+_DROP_DUPLICATES = text("DROP TABLE IF EXISTS merge_duplicate_events")
+_COLLECT_DUPLICATES = [
+    _DROP_DUPLICATES,
     text(
-        _RANKED_DUPLICATES
-        + f"""
+        "CREATE TEMP TABLE merge_duplicate_events AS "
+        + _RANKED_DUPLICATES
+        + "SELECT id, keep_id, rn FROM ranked WHERE rn > 1"
+    ),
+    text("CREATE INDEX ON merge_duplicate_events (keep_id, rn)"),
+    text("CREATE INDEX ON merge_duplicate_events (id)"),
+    text("ANALYZE merge_duplicate_events"),
+]
+# Batches take a kept event's copies in rank order, so its best-ranked copy is seen first
+_NEXT_DUPLICATES = text("SELECT id FROM merge_duplicate_events ORDER BY keep_id, rn LIMIT :batch_size")
+# A score or details of the best-ranked dropped copy move to a kept event that lacks them
+_DUPLICATE_SCORES = text("""
+    UPDATE health_score h SET event_record_id = c.keep_id
+    FROM (
+        SELECT DISTINCT ON (r.keep_id, x.provider, x.category) x.id, r.keep_id
+        FROM merge_duplicate_events r JOIN health_score x ON x.event_record_id = r.id
+        WHERE r.id = ANY(:ids) AND NOT EXISTS (
+            SELECT 1 FROM health_score k
+            WHERE k.event_record_id = r.keep_id AND k.provider = x.provider AND k.category = x.category
+        )
+        ORDER BY r.keep_id, x.provider, x.category, r.rn
+    ) c
+    WHERE h.id = c.id
+""")
+_DUPLICATE_DETAILS = [
+    text(f"""
         UPDATE {table} d SET record_id = c.keep_id
         FROM (
             SELECT DISTINCT ON (r.keep_id) r.id, r.keep_id
-            FROM ranked r JOIN {table} x ON x.record_id = r.id
-            WHERE r.rn > 1 AND NOT EXISTS (SELECT 1 FROM {table} k WHERE k.record_id = r.keep_id)
+            FROM merge_duplicate_events r JOIN {table} x ON x.record_id = r.id
+            WHERE r.id = ANY(:ids) AND NOT EXISTS (SELECT 1 FROM {table} k WHERE k.record_id = r.keep_id)
             ORDER BY r.keep_id, r.rn
         ) c
         WHERE d.record_id = c.id
-        """
-    )
+    """)
     for table in _DETAIL_TABLES
 ]
-_DUPLICATE_DELETE = text(
-    _RANKED_DUPLICATES + "DELETE FROM event_record e USING ranked r WHERE r.rn > 1 AND e.id = r.id"
-)
+# Dropped copies are deleted by primary key; a join against the temp table would scan event_record
+_DELETE_EVENTS = text("DELETE FROM event_record WHERE id = ANY(:ids)")
+_FORGET_DUPLICATES = text("DELETE FROM merge_duplicate_events WHERE id = ANY(:ids)")
 
 
-def _rowcount(db: Session, query: TextClause, params: dict | None = None) -> int:
-    return db.execute(query, params or {}).rowcount  # ty: ignore[unresolved-attribute]
+def _rowcount(db: Session, query: TextClause, params: dict) -> int:
+    return db.execute(query, params).rowcount  # ty: ignore[unresolved-attribute]
+
+
+def _move_in_batches(db: Session, statements: _BatchStatements, src: UUID, tgt: UUID) -> None:
+    while True:
+        bound = db.execute(statements.nth_key, {"src": src, "offset": _BATCH_SIZE - 1}).mappings().first()
+        last = bound is None
+        if last:
+            bound = db.execute(statements.last_key, {"src": src}).mappings().first()
+        if bound is None:
+            return
+        params = {"src": src, "tgt": tgt, **bound}
+        db.execute(statements.drop_copies, params)
+        db.execute(statements.move, params)
+        db.commit()
+        if last:
+            return
+
+
+def _remove_duplicate_events(db: Session) -> int:
+    for query in _COLLECT_DUPLICATES:
+        db.execute(query)
+    db.commit()
+    removed = 0
+    while ids := list(db.execute(_NEXT_DUPLICATES, {"batch_size": _BATCH_SIZE}).scalars()):
+        for query in (_DUPLICATE_SCORES, *_DUPLICATE_DETAILS):
+            db.execute(query, {"ids": ids})
+        removed += _rowcount(db, _DELETE_EVENTS, {"ids": ids})
+        db.execute(_FORGET_DUPLICATES, {"ids": ids})
+        db.commit()
+    db.execute(_DROP_DUPLICATES)
+    db.commit()
+    return removed
 
 
 def merge_duplicate_data_sources(db: Session, *, dry_run: bool) -> dict[str, int]:
-    """Run both phases. Does not commit — the caller owns the transaction."""
+    """Run both phases, committing as it goes.
+
+    The session must stay on one connection (see main): the lock timeout and the duplicates temp table
+    are connection state.
+    """
+    db.execute(_LOCK_TIMEOUT)
     params = {"placeholders": sorted(DEVICE_MODEL_PLACEHOLDERS), "platforms": list(GOOGLE_PLATFORMS)}
     renamed = merged = failed = 0
-    for row in db.execute(_RENAME_CANDIDATES, params).mappings().all():
+    candidates = db.execute(_RENAME_CANDIDATES, params).mappings().all()
+    for row in candidates:
         src: UUID = row["id"]
         target = db.execute(
             _TARGET,
@@ -221,12 +310,17 @@ def merge_duplicate_data_sources(db: Session, *, dry_run: bool) -> dict[str, int
         else:
             steps = [(step, {"src": src, "tgt": target}) for step in _MERGE_STEPS]
         if not dry_run:
-            # One bad source (e.g. a row a concurrent sync just wrote) must not roll back the others
+            # One bad source (e.g. a row a concurrent sync just wrote) must not stop the others;
+            # its committed batches stay and the next run finishes it
             try:
-                with db.begin_nested():
-                    for query, query_params in steps:
-                        db.execute(query, query_params)
+                if target is not None:
+                    for statements in _BATCHES:
+                        _move_in_batches(db, statements, src, target)
+                for query, query_params in steps:
+                    db.execute(query, query_params)
+                db.commit()
             except SQLAlchemyError as e:
+                db.rollback()
                 failed += 1
                 log_and_capture_error(
                     e, logger, f"Skipped merging data source {src}: {e}", extra={"data_source_id": str(src)}
@@ -237,12 +331,16 @@ def merge_duplicate_data_sources(db: Session, *, dry_run: bool) -> dict[str, int
         else:
             merged += 1
 
-    duplicates = db.execute(_DUPLICATE_COUNT).scalar() or 0
-    if not dry_run and duplicates:
-        db.execute(_DUPLICATE_SCORES)
-        for query in _DUPLICATE_DETAILS:
-            db.execute(query)
-        duplicates = _rowcount(db, _DUPLICATE_DELETE)
+    duplicates = 0
+    if candidates and dry_run:
+        duplicates = db.execute(_DUPLICATE_COUNT).scalar() or 0
+    elif candidates:
+        try:
+            duplicates = _remove_duplicate_events(db)
+        except SQLAlchemyError as e:
+            db.rollback()
+            failed += 1
+            log_and_capture_error(e, logger, f"Skipped removing duplicate events: {e}")
 
     result = {"renamed_sources": renamed, "merged_sources": merged, "duplicate_events_removed": duplicates}
     verb = "Would" if dry_run else "Did"
@@ -256,14 +354,13 @@ def merge_duplicate_data_sources(db: Session, *, dry_run: bool) -> dict[str, int
 
 
 def main(dry_run: bool) -> None:
-    with SessionLocal() as db:
+    with engine.connect() as connection, Session(bind=connection) as db:
         result = merge_duplicate_data_sources(db, dry_run=dry_run)
         if dry_run:
             return
         if not any(result.values()):
             print("Nothing to do — no split data sources or duplicate events found.")
             return
-        db.commit()
         print("Done.")
 
 
