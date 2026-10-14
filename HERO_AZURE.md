@@ -2,7 +2,7 @@
 
 This fork prepares a reproducible Open Wearables deployment for Hero 5.0.
 The Azure VM, private database access and ACR images are provisioned. The
-application is not deployed; DNS and the shared PostgreSQL capacity decision are pending.
+application is not deployed; DNS and application activation are pending.
 
 ## Source and update policy
 

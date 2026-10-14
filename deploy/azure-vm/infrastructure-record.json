@@ -26,7 +26,8 @@
   "dnsStatus": "pending-user-IONOS-record",
   "vmImagePullVerified": true,
   "databaseIsolationVerified": true,
-  "sharedPostgresMaxConnections": 50,
-  "sharedPostgresCapacityChange": "100-and-restart-awaiting-user-approval",
-  "temporaryAdministratorSecretPermissionRemoved": true
+  "sharedPostgresMaxConnections": 100,
+  "sharedPostgresCapacityChange": "user-approved-100-applied-and-restarted",
+  "temporaryAdministratorSecretPermissionRemoved": true,
+  "sharedPostgresCapacityGate": "resolved"
 }

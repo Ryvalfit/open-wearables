@@ -249,11 +249,13 @@ References: [Azure PostgreSQL TLS](https://learn.microsoft.com/en-us/azure/postg
   is removed after database preparation; no Hero credential is copied into OW config.
 - Backend/frontend ACR publication and VM identity-based digest pulls are verified.
 - IONOS `A wearables → 20.234.120.170` is pending. No public certificate issued yet.
-- PostgreSQL private DNS and verified TLS work, but it has only 50 connection slots
-  and initially rejected normal-user login due to existing shared usage. After usage
-  fell, both scoped logins and reciprocal database isolation were verified. Increase
-  connection headroom before activating OW; the proposed 100-slot change requires
-  a shared PostgreSQL restart and is awaiting explicit user approval.
+- PostgreSQL private DNS, verified TLS, scoped logins and reciprocal database
+  isolation are verified. The server initially had 50 slots and rejected normal
+  connections during a shared usage peak. With explicit user approval,
+  max_connections was increased to 100 and the server restarted; SQL confirms
+  the active value and Azure reports Ready without pending changes. Hero's public
+  GraphQL endpoint also responded successfully after restart. Monitor actual pool
+  usage during OW activation; this does not replace workload/backup acceptance.
 - No application containers, OW migrations, device traffic or Hero config changes
   have been activated. Production monitoring and backup/restore remain pending.
 
