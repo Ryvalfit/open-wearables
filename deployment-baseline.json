@@ -1,0 +1,10 @@
+{
+  "upstreamRepository": "https://github.com/the-momentum/open-wearables",
+  "upstreamTag": "0.9.0",
+  "upstreamCommit": "ff8527a52ad8a96cd1ebe8c19344295c934ae9dc",
+  "releaseBranch": "codex/azure-0.9.0",
+  "heroIosSdkVersion": "0.15.0",
+  "heroAndroidSdkVersion": "v0.13.1",
+  "deploymentStatus": "not-deployed",
+  "containerImageDigests": null
+}
