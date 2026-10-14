@@ -1,3 +1,5 @@
+import contextlib
+from collections.abc import Sequence
 from typing import NamedTuple, cast
 from uuid import UUID, uuid4
 
@@ -14,6 +16,24 @@ from app.schemas.enums import DeviceType, ProviderName
 from app.schemas.model_crud.activities import EventRecordCreate, TimeSeriesSampleCreate
 from app.schemas.model_crud.data_priority import DataSourceCreate, DataSourceUpdate
 
+SourceCreator = EventRecordCreate | TimeSeriesSampleCreate
+
+# Creator fields that describe its data source rather than the record itself
+DATA_SOURCE_FIELDS = frozenset(
+    {
+        "user_id",
+        "provider",
+        "user_connection_id",
+        "device_model",
+        "software_version",
+        "source",
+        "device_type",
+        "device_id",
+        "source_app_id",
+        "device_manufacturer",
+    }
+)
+
 
 class DataSourceIdentity(NamedTuple):
     """Fields a data source is matched on; ingest passes ids only when they are stable for the device or app."""
@@ -25,7 +45,7 @@ class DataSourceIdentity(NamedTuple):
     source_app_id: str | None
 
     @classmethod
-    def of(cls, obj: EventRecordCreate | TimeSeriesSampleCreate | DataSource) -> "DataSourceIdentity":
+    def of(cls, obj: SourceCreator | DataSource) -> "DataSourceIdentity":
         """Identity of a record creator or a stored row."""
         return cls(obj.user_id, obj.device_model, obj.source, obj.device_id, obj.source_app_id)
 
@@ -197,6 +217,54 @@ class DataSourceRepository(
         details = SourceDetails(software_version, original_source_name, reported_type, device_manufacturer)
         return self._resolve_many(db_session, provider, [(identity, details)], user_connection_id)[identity]
 
+    @staticmethod
+    def provider_of(creator: SourceCreator) -> ProviderName:
+        """The creator's explicit provider when valid, else the one inferred from its source."""
+        if creator.provider:
+            with contextlib.suppress(ValueError):
+                return ProviderName(creator.provider)
+        return ProviderName.from_source_string(creator.source)
+
+    def ensure_for_creator(
+        self, db_session: DbSession, creator: SourceCreator, original_source_name: str | None = None
+    ) -> DataSource:
+        return self.ensure_data_source(
+            db_session,
+            user_id=creator.user_id,
+            provider=self.provider_of(creator),
+            user_connection_id=creator.user_connection_id,
+            device_model=creator.device_model,
+            software_version=creator.software_version,
+            source=creator.source,
+            original_source_name=original_source_name,
+            reported_type=creator.device_type,
+            device_id=creator.device_id,
+            source_app_id=creator.source_app_id,
+            device_manufacturer=creator.device_manufacturer,
+        )
+
+    def resolve_creators(
+        self, db_session: DbSession, creators: Sequence[SourceCreator]
+    ) -> dict[DataSourceIdentity, UUID]:
+        """Data source id per creator identity, resolved in one batch per provider."""
+        by_provider: dict[ProviderName, list[SourceCreator]] = {}
+        for creator in creators:
+            by_provider.setdefault(self.provider_of(creator), []).append(creator)
+
+        resolved: dict[DataSourceIdentity, UUID] = {}
+        for provider, group in by_provider.items():
+            sources: dict[DataSourceIdentity, SourceDetails] = {}
+            for creator in group:
+                identity = DataSourceIdentity.of(creator)
+                known = sources.get(identity, SourceDetails())
+                sources[identity] = SourceDetails(
+                    software_version=known.software_version or creator.software_version or None,
+                    reported_type=known.reported_type or creator.device_type or None,
+                    device_manufacturer=known.device_manufacturer or creator.device_manufacturer or None,
+                )
+            resolved.update(self.batch_ensure_data_sources(db_session, provider, group[0].user_connection_id, sources))
+        return resolved
+
     def _resolve_many(
         self,
         db_session: DbSession,
@@ -333,22 +401,10 @@ class DataSourceRepository(
         db_session: DbSession,
         provider: ProviderName,
         user_connection_id: UUID | None,
-        identities: set[DataSourceIdentity],
-        reported_types: dict[DataSourceIdentity, DeviceType] | None = None,
-        software_versions: dict[DataSourceIdentity, str] | None = None,
-        manufacturers: dict[DataSourceIdentity, str] | None = None,
+        sources: dict[DataSourceIdentity, SourceDetails],
     ) -> dict[DataSourceIdentity, UUID]:
-        reported_types = reported_types or {}
-        software_versions = software_versions or {}
-        manufacturers = manufacturers or {}
-        normalized: dict[DataSourceIdentity, DataSourceIdentity] = {}
-        requests: list[tuple[DataSourceIdentity, SourceDetails]] = []
-        for identity in identities:
-            normalized[identity] = DataSourceIdentity(*identity).with_clean_ids()
-            details = SourceDetails(
-                software_versions.get(identity), None, reported_types.get(identity), manufacturers.get(identity)
-            )
-            requests.append((normalized[identity], details))
+        normalized = {identity: DataSourceIdentity(*identity).with_clean_ids() for identity in sources}
+        requests = [(normalized[identity], details) for identity, details in sources.items()]
         if not requests:
             return {}
         resolved = self._resolve_many(db_session, provider, requests, user_connection_id)
@@ -395,11 +451,3 @@ class DataSourceRepository(
         )
         db_session.commit()
         return result.rowcount
-
-    def infer_provider_from_source(self, source: str | None) -> ProviderName:
-        """Infer provider from source string.
-
-        Deprecated: Use ProviderName.from_source_string() directly instead.
-        This method is kept for backward compatibility.
-        """
-        return ProviderName.from_source_string(source)

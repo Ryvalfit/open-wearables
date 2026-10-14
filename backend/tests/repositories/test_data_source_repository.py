@@ -12,7 +12,7 @@ The column is now ``VARCHAR(100)``.
 from sqlalchemy.orm import Session
 
 from app.models import DataSource
-from app.repositories.data_source_repository import DataSourceRepository
+from app.repositories.data_source_repository import DataSourceRepository, SourceDetails
 from app.schemas.enums import DeviceType, ProviderName
 from tests.factories import UserFactory
 
@@ -78,8 +78,7 @@ class TestDataSourceRepository:
             db,
             ProviderName.SAMSUNG,
             None,
-            {(user.id, "unlisted-model", "tab", None, None)},
-            {(user.id, "unlisted-model", "tab", None, None): DeviceType.BAND},
+            {(user.id, "unlisted-model", "tab", None, None): SourceDetails(reported_type=DeviceType.BAND)},
         )
         assert repo.get_by_identity(db, **identity).device_type == DeviceType.WATCH
 
@@ -103,11 +102,13 @@ class TestDataSourceRepository:
         user = UserFactory()
         repo = DataSourceRepository(DataSource)
         identity = (user.id, None, "com.fitbit.FitbitMobile", None, None)
-        repo.batch_ensure_data_sources(db, ProviderName.HEALTH_CONNECT, None, {identity})
+        repo.batch_ensure_data_sources(db, ProviderName.HEALTH_CONNECT, None, {identity: SourceDetails()})
         ds = repo.get_by_identity(db, user.id, ProviderName.HEALTH_CONNECT, None, "com.fitbit.FitbitMobile")
         assert ds.device_type is None
 
-        repo.batch_ensure_data_sources(db, ProviderName.HEALTH_CONNECT, None, {identity}, {identity: DeviceType.BAND})
+        repo.batch_ensure_data_sources(
+            db, ProviderName.HEALTH_CONNECT, None, {identity: SourceDetails(reported_type=DeviceType.BAND)}
+        )
         db.expire_all()
         ds = repo.get_by_identity(db, user.id, ProviderName.HEALTH_CONNECT, None, "com.fitbit.FitbitMobile")
         assert ds.device_type == DeviceType.BAND
@@ -121,8 +122,10 @@ class TestDataSourceRepository:
         identity = (user.id, None, "strava", None, None)
         new_identity = (user.id, "SM-L315F", "Galaxy Watch7", None, None)
 
-        result = repo.batch_ensure_data_sources(db, ProviderName.STRAVA, None, {identity})
-        repo.batch_ensure_data_sources(db, ProviderName.SAMSUNG, None, {new_identity}, None, {new_identity: "5.0.1"})
+        result = repo.batch_ensure_data_sources(db, ProviderName.STRAVA, None, {identity: SourceDetails()})
+        repo.batch_ensure_data_sources(
+            db, ProviderName.SAMSUNG, None, {new_identity: SourceDetails(software_version="5.0.1")}
+        )
 
         assert result[identity] == stored.id
         created = repo.get_by_identity(db, user.id, ProviderName.SAMSUNG, "SM-L315F", "Galaxy Watch7")
@@ -212,7 +215,9 @@ class TestDataSourceRepository:
         steps = (user.id, "SM-M127F", "m12", None, None)
         keyed = (user.id, "SM-M127F", "Kamil's M12", "loGXfm78JC", "com.sec.android.app.shealth")
 
-        result = repo.batch_ensure_data_sources(db, ProviderName.SAMSUNG, None, {steps, keyed})
+        result = repo.batch_ensure_data_sources(
+            db, ProviderName.SAMSUNG, None, {steps: SourceDetails(), keyed: SourceDetails()}
+        )
 
         assert result[steps] == result[keyed]
 
@@ -235,7 +240,9 @@ class TestDataSourceRepository:
         unknown = (user.id, None, app, None, app)
         known = (user.id, "Charge 6", app, None, app)
 
-        result = repo.batch_ensure_data_sources(db, ProviderName.HEALTH_CONNECT, None, {unknown, known})
+        result = repo.batch_ensure_data_sources(
+            db, ProviderName.HEALTH_CONNECT, None, {unknown: SourceDetails(), known: SourceDetails()}
+        )
 
         assert result[unknown] == result[known]
         assert repo.get_by_identity(db, user.id, ProviderName.HEALTH_CONNECT, "Charge 6", app, None, app) is not None
