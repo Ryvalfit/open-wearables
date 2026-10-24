@@ -5,18 +5,17 @@ from fastapi import APIRouter, HTTPException, Response, status
 
 from app.database import DbSession
 from app.models import ProviderSetting
-from app.repositories.provider_settings_repository import ProviderSettingsRepository
 from app.schemas.auth import ConnectionStatus, LiveSyncMode, SDKAuthContext
 from app.schemas.enums import ProviderName
 from app.schemas.model_crud.user_management import UserConnectionWithCapabilities
 from app.services import ApiKeyDep, user_connection_service
+from app.services.provider_settings_service import provider_settings_service
 from app.services.providers.base_strategy import BaseProviderStrategy
 from app.services.providers.factory import ProviderFactory
 from app.utils.auth import CombinedAuthDep
 
 router = APIRouter()
 factory = ProviderFactory()
-provider_settings_repo = ProviderSettingsRepository()
 
 
 def _with_capabilities(
@@ -54,7 +53,7 @@ def get_connections_endpoint(
     _api_key: ApiKeyDep,
 ):
     """Get all connections for a user, enriched with provider capability metadata."""
-    settings_map = provider_settings_repo.get_all(db)
+    settings_map = provider_settings_service.get_settings_map(db)
     connections = user_connection_service.get_connections_by_user(db, user_id)
     provider_pairs = [
         (c.provider, c.provider_user_id)
@@ -128,7 +127,12 @@ def delete_provider_data_endpoint(
 ) -> Response:
     """Delete all of a user's data for a provider and revoke the connection."""
     strategy = ProviderFactory().get_provider(provider.value)
+    existed = user_connection_service.get_connection(db, user_id, provider.value) is not None
     user_connection_service.purge_provider_data(db, user_id, provider.value, oauth=strategy.oauth)
+    if not existed:
+        # Preserve the existing REST response while fencing delayed writes even
+        # when no connection had been persisted before the deletion request.
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Connection not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

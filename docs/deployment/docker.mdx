@@ -267,3 +267,40 @@ Releases before the SvelteKit portal shipped a React frontend in the same image.
 
 - [Deploy to Railway](/deployment/railway) — One-click managed deployment
 - [Raw Payloads Storage](/dev-guides/raw-payload-storage) — Backend runtime configuration example
+
+## Hero fork: private metric reads
+
+Hero's backend reads the original samples through OW's authenticated REST API.
+Keep the developer API key on the server. The new routes require the existing
+API key authentication and an explicit provider allowlist:
+
+- `GET /api/v1/users/{user_id}/metrics/chart`: `metric`, `start`, `end`,
+  repeated `providers`, optional `time_zone`, `resolution`, and `max_points`
+  (10–2000). The returned chart includes extrema; chart grouping never changes
+  stored samples.
+- `GET /api/v1/users/{user_id}/metrics/availability`: `start`, `end`,
+  repeated `providers` (at most five), and repeated `metrics` (1–12).
+- Existing timeseries reads can use `include_total_count=false` to avoid a
+  separate count. Samples expose their original `id` and `data_source_id`.
+- `POST /api/v1/users/{user_id}/connections/{provider}/resume-ingestion`
+  explicitly opens a new ingestion generation after a deletion/reconnection.
+
+A missing API key returns 401. Invalid time windows/time zones return 400;
+invalid enum values, limits, or an overly fine chart resolution return 422.
+A stale or blocked ingestion generation returns 409. API-key holders must
+authorize the user and provider access in their own backend before calling OW.
+The generated OpenAPI document defines the response fields and range limits.
+
+Set `DEFAULT_DATA_GRANULARITY=raw`, keep each provider's saved granularity
+`raw`, and set `DATA_LIFECYCLE_ENABLED=false`. Disable archival processing
+rather than relying on a retention window to preserve originals.
+
+This fork joins the deployed OW 0.10.0 migration head `c4e7a1d93b52` with
+the ingestion-fence migration `f19e927b6d01` at `b83d731ac209`.
+Before updating API, worker and beat, retain the current immutable image/config,
+back up OW's database, stop those three writers, and run `alembic upgrade head`
+with the new image. Keep Redis, Svix, the portal and proxy in place. Start the
+three services with the same new image, then verify API authentication, the
+migration head, worker ping and a single beat process. The additive fence
+migration permits an image rollback; do not downgrade the database.
+Deploy OW first, then Hero's backend/migration, and finally the Hero app.

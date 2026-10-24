@@ -777,6 +777,9 @@ class TestDeleteProviderDataEndpoint:
 
         # Assert
         assert response.status_code == 404
+        db.expire_all()
+        fence = db.query(UserConnection).filter_by(user_id=user.id, provider="garmin").one()
+        assert fence.ingest_blocked_at is not None
 
     def test_delete_data_missing_api_key(self, client: TestClient, db: Session) -> None:
         """Request without API key is rejected."""
