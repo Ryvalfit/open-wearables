@@ -16,6 +16,7 @@ class SleepStateStage(BaseModel):
 class SleepState(BaseModel):
     """Schema for sleep state stored in Redis."""
 
+    ingest_generation: int = 0
     uuid: str
     source_name: str | None = None
     device_model: str | None = None

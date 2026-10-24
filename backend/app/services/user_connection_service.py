@@ -5,6 +5,7 @@ from uuid import UUID
 from app.database import DbSession
 from app.models import UserConnection
 from app.repositories.data_source_repository import DataSourceRepository
+from app.repositories.provider_ingestion import provider_lifecycle_lock, set_ingestion_state
 from app.repositories.user_connection_repository import UserConnectionRepository
 from app.schemas.enums import ProviderName, SdkConnectionOutcome
 from app.schemas.model_crud.user_management import UserConnectionCreate, UserConnectionUpdate
@@ -29,6 +30,10 @@ class UserConnectionService(
             **kwargs,
         )
         self.data_source_crud = DataSourceRepository()
+
+    def resume_ingestion(self, db_session: DbSession, user_id: UUID, provider: str) -> None:
+        with provider_lifecycle_lock(db_session, user_id, provider):
+            set_ingestion_state(db_session, user_id, provider, blocked=False)
 
     def get_active_count_in_range(self, db_session: DbSession, start_date: datetime, end_date: datetime) -> int:
         """Get count of active connections created within a date range."""
@@ -157,10 +162,12 @@ class UserConnectionService(
         dependent event records, series, details and health scores. Returns the number of
         data_source rows deleted. Safe to call on an already-revoked connection.
         """
-        self.disconnect(db_session, user_id, provider, oauth=oauth)
-        deleted = self.data_source_crud.delete_user_provider_data(db_session, user_id, ProviderName(provider))
-        self.logger.info("Purged %s data sources for user %s from provider %s", deleted, user_id, provider)
-        return deleted
+        with provider_lifecycle_lock(db_session, user_id, provider):
+            set_ingestion_state(db_session, user_id, provider, blocked=True)
+            self.disconnect(db_session, user_id, provider, oauth=oauth)
+            deleted = self.data_source_crud.delete_user_provider_data(db_session, user_id, ProviderName(provider))
+            self.logger.info("Purged %s data sources for user %s from provider %s", deleted, user_id, provider)
+            return deleted
 
     @handle_exceptions
     def stamp_last_synced_at(self, db_session: DbSession, user_id: UUID, provider: str) -> None:

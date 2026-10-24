@@ -62,6 +62,7 @@ class StepSampleCreate(TimeSeriesSampleCreate):
 
 
 class TimeSeriesQueryParams(SourceFilterParams):
+    include_total_count: bool = True
     """Filters for retrieving time series samples."""
 
     start_datetime: datetime | None = Field(None, description="Lower bound (inclusive) for recorded timestamp")

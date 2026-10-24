@@ -9,6 +9,7 @@ from app.config import settings
 from app.constants.sdk_providers import SDK_PROVIDERS
 from app.database import SessionLocal
 from app.models import User
+from app.repositories.provider_ingestion import lock_ingestion
 from app.repositories.user_repository import UserRepository
 from app.schemas.sync_status import (
     DataTypeKind,
@@ -79,6 +80,7 @@ def process_sdk_upload(
     payload_ref: str | None = None,
     sync_session_id: str | None = None,
     sync_type: str | None = None,
+    ingest_generation: int = 0,
 ) -> dict[str, Any]:
     """
     Process SDK data import asynchronously.
@@ -191,6 +193,7 @@ def process_sdk_upload(
     )
 
     with SessionLocal() as db:
+        lock_ingestion(db, user_uuid, provider, expected_generation=ingest_generation)
         # Ensure SDK connection exists for this user (SDK-based, no OAuth tokens).
         # Goes through the service so a new/reactivated connection emits connection.created.
         user_connection_service.ensure_sdk_connection(db, user_uuid, provider)

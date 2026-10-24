@@ -9,6 +9,7 @@ from app.constants.devices_map import infer_device_type
 from app.constants.sdk_providers import SDK_PROVIDERS
 from app.database import DbSession
 from app.models import DataSource, HealthScore, ProviderPriority
+from app.repositories.provider_ingestion import lock_ingestion
 from app.repositories.provider_priority_repository import ProviderPriorityRepository
 from app.repositories.repositories import CrudRepository
 from app.schemas.enums import DeviceType, ProviderName
@@ -62,6 +63,8 @@ class DataSourceRepository(
         original_source_name: str | None = None,
         reported_type: DeviceType | None = None,
     ) -> DataSource:
+        from_provider = provider.value if hasattr(provider, "value") else str(provider)
+        lock_ingestion(db_session, user_id, from_provider)
         existing = self.get_by_identity(db_session, user_id, provider, device_model, source)
         if existing:
             updated = False
@@ -131,7 +134,9 @@ class DataSourceRepository(
         if not identities:
             return {}
 
-        identities_list = list(identities)
+        identities_list = sorted(identities, key=lambda identity: str(identity[0]))
+        for user_id in sorted({identity[0] for identity in identities}, key=str):
+            lock_ingestion(db_session, user_id, provider.value)
 
         conditions = []
         for user_id, device_model, source in identities_list:

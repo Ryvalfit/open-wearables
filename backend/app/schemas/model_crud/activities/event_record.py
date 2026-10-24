@@ -113,6 +113,8 @@ class EventRecordQueryParams(SourceFilterParams):
     start_datetime: datetime | None = Field(None, description="Start datetime for filtering records")
     end_datetime: datetime | None = Field(None, description="End datetime for filtering records")
 
+    overlap_window: bool = Field(False, description="Select intervals overlapping [start, end)")
+
     # Category and type filtering
     category: str | None = Field(
         "workout",

@@ -1,8 +1,8 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Index
-from sqlalchemy.orm import Mapped
+from sqlalchemy import Index, Integer
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import BaseDbModel
 from app.mappings import FKUser, PrimaryKey, str_64
@@ -28,6 +28,9 @@ class UserConnection(BaseDbModel):
         ),
     )
     __tablename__ = "user_connection"
+
+    ingest_generation: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    ingest_blocked_at: Mapped[datetime | None]
 
     id: Mapped[PrimaryKey[UUID]]
     user_id: Mapped[FKUser]

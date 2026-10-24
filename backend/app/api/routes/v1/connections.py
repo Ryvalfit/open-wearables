@@ -130,3 +130,8 @@ def delete_provider_data_endpoint(
     strategy = ProviderFactory().get_provider(provider.value)
     user_connection_service.purge_provider_data(db, user_id, provider.value, oauth=strategy.oauth)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/users/{user_id}/connections/{provider}/resume-ingestion", status_code=status.HTTP_204_NO_CONTENT)
+async def resume_ingestion(user_id: UUID, provider: ProviderName, db: DbSession, _api_key: ApiKeyDep) -> None:
+    user_connection_service.resume_ingestion(db, user_id, provider.value)

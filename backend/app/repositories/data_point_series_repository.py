@@ -40,6 +40,7 @@ from app.database import DbSession
 from app.models import DataPointSeries, DataPointSeriesArchive, DataSource, DeviceTypePriority, ProviderPriority
 from app.models.series_type_definition import SeriesTypeDefinition
 from app.repositories.data_source_repository import DataSourceRepository
+from app.repositories.provider_ingestion import lock_ingestion
 from app.repositories.repositories import (
     CrudRepository,
     source_filter_conditions,
@@ -214,6 +215,12 @@ class DataPointSeriesRepository(
         """
         if not creators:
             return WriteCounts(0, 0)
+
+        for user_id, provider in sorted(
+            {(c.user_id, c.provider or "") for c in creators}, key=lambda x: (str(x[0]), x[1])
+        ):
+            if provider:
+                lock_ingestion(db_session, user_id, provider)
 
         # 1. Resolve all data sources in batch
         identity_to_source_id = self._resolve_data_sources(db_session, creators)
@@ -434,7 +441,7 @@ class DataPointSeriesRepository(
             source_by_type,
         )
 
-        total_count = query.count() if params.cursor is None else None
+        total_count = query.count() if params.cursor is None and params.include_total_count else None
 
         # Cursor pagination (keyset)
         if params.cursor:

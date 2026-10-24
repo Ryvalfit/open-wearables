@@ -39,6 +39,8 @@ def source_filter_conditions(
     conditions: list[ColumnElement[bool]] = []
     if params.provider:
         conditions.append(DataSource.provider == params.provider)
+    if params.providers is not None:
+        conditions.append(DataSource.provider.in_(params.providers))
     if params.source:
         conditions.append(DataSource.source == params.source)
     if params.device_model:

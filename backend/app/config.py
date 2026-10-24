@@ -317,7 +317,8 @@ class Settings(BaseSettings):
     # DATA LIFECYCLE
     # Master switch for time-series archival and retention: the admin panel tab, the
     # /settings/archival endpoints and the daily archival task.
-    data_lifecycle_enabled: bool = True
+    # Hero keeps normalized originals; archival must be explicitly enabled.
+    data_lifecycle_enabled: bool = False
 
     # RAW PAYLOAD STORAGE
     raw_payload_storage: str = "disabled"  # disabled | log | s3

@@ -1,12 +1,15 @@
 import json
 import uuid
 from logging import getLogger
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
 
 from app.config import settings
 from app.constants.sdk_providers import SDK_PROVIDERS, normalize_sdk_provider
+from app.database import DbSession
 from app.integrations.celery.tasks.process_sdk_upload_task import process_sdk_upload
+from app.repositories.provider_ingestion import lock_ingestion
 from app.schemas.providers.mobile_sdk import SyncRequest
 from app.schemas.responses.upload import UploadDataResponse
 from app.services.raw_payload_storage import put_payload_to_s3, store_raw_payload
@@ -36,6 +39,7 @@ def sync_sdk_data(
     body: dict,
     auth: SDKAuthDep,
     request: Request,
+    db: DbSession,
 ) -> UploadDataResponse:
     """Import health data from SDK provider asynchronously via Celery.
 
@@ -85,6 +89,10 @@ def sync_sdk_data(
     # The worker and import service re-read the provider from the payload, so the
     # canonical slug has to replace the alias here rather than travel alongside it.
     body["provider"] = provider
+
+    row = lock_ingestion(db, UUID(user_id), provider)
+    generation = row.ingest_generation if row else 0
+    db.commit()
 
     # Generate unique batch ID for tracking
     batch_id = str(uuid.uuid4())
@@ -158,6 +166,7 @@ def sync_sdk_data(
         provider=provider,
         batch_id=batch_id,
         payload_ref=payload_ref,
+        ingest_generation=generation,
         # SDK versions that do not send these yet have no session, so the batch is live.
         sync_session_id=body.get("syncSessionId"),
         sync_type=body.get("syncType"),

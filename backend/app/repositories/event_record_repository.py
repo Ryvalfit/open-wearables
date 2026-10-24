@@ -370,10 +370,18 @@ class EventRecordRepository(
         filters.extend(source_filter_conditions(query_params, EventRecord.data_source_id))
 
         if query_params.start_datetime:
-            filters.append(EventRecord.start_datetime >= query_params.start_datetime)
+            filters.append(
+                EventRecord.end_datetime > query_params.start_datetime
+                if query_params.overlap_window
+                else EventRecord.start_datetime >= query_params.start_datetime
+            )
 
         if query_params.end_datetime:
-            filters.append(EventRecord.end_datetime < query_params.end_datetime)
+            filters.append(
+                EventRecord.start_datetime < query_params.end_datetime
+                if query_params.overlap_window
+                else EventRecord.end_datetime < query_params.end_datetime
+            )
 
         if query_params.min_duration is not None:
             filters.append(EventRecord.duration_seconds >= query_params.min_duration)
@@ -553,10 +561,19 @@ class EventRecordRepository(
             DataSource.user_id == UUID(user_id),
             EventRecord.category == "sleep",
         ]
+        filters.extend(source_filter_conditions(query_params, EventRecord.data_source_id))
         if query_params.start_datetime:
-            filters.append(EventRecord.start_datetime >= query_params.start_datetime)
+            filters.append(
+                EventRecord.end_datetime > query_params.start_datetime
+                if query_params.overlap_window
+                else EventRecord.start_datetime >= query_params.start_datetime
+            )
         if query_params.end_datetime:
-            filters.append(EventRecord.end_datetime < query_params.end_datetime)
+            filters.append(
+                EventRecord.start_datetime < query_params.end_datetime
+                if query_params.overlap_window
+                else EventRecord.end_datetime < query_params.end_datetime
+            )
         if query_params.is_nap is not None:
             filters.append(_nap_condition(query_params.is_nap))
 

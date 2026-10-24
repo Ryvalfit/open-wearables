@@ -7,6 +7,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from celery import current_app as celery_app
+from fastapi import HTTPException
 
 from app.config import settings
 from app.constants.series_types.sdk import (
@@ -17,6 +18,7 @@ from app.constants.sleep import SleepStageType
 from app.database import DbSession
 from app.integrations.redis_client import get_redis_client
 from app.models import EventRecord
+from app.repositories.provider_ingestion import lock_ingestion
 from app.schemas.enums import DeviceType, HealthScoreCategory, ProviderName
 from app.schemas.model_crud.activities import (
     EventRecordCreate,
@@ -267,6 +269,11 @@ def handle_sleep_data(
 
         current_state = load_sleep_state(user_id)
         provider = request.provider
+        connection = lock_ingestion(db_session, UUID(user_id), provider)
+        generation = connection.ingest_generation if connection else 0
+        if current_state and current_state.provider == provider and current_state.ingest_generation != generation:
+            delete_sleep_state(user_id)
+            current_state = None
 
         # Deduplicate and sort
         seen = set()
@@ -310,6 +317,8 @@ def handle_sleep_data(
                     device_type,
                 )
 
+                current_state.ingest_generation = generation
+
             current_state = _apply_transition(
                 db_session,
                 user_id,
@@ -325,6 +334,8 @@ def handle_sleep_data(
                 device_type,
             )
 
+            if current_state.provider == provider:
+                current_state.ingest_generation = generation
             sleep_score = _extract_sleep_score(sjson.values)
             # The state is per user, so it may belong to another provider's open session
             if sleep_score is not None and current_state.provider == provider:
@@ -468,6 +479,12 @@ def finish_sleep(db_session: DbSession, user_id: str, state: SleepState) -> None
     represented as a single session.
     """
 
+    if state.provider:
+        try:
+            lock_ingestion(db_session, UUID(user_id), state.provider, expected_generation=state.ingest_generation)
+        except HTTPException:
+            delete_sleep_state(user_id)
+            raise
     # Recalculate metrics from stages to handle overlaps/duplicates
     # state.stages is a list[SleepStateStage]
     metrics, cleaned_stages = _calculate_final_metrics(state.stages)

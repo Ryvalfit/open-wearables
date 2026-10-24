@@ -64,6 +64,7 @@ def _to_sample(
     value: Decimal,
     is_daily_total: bool | None,
     data_source: DataSource | None,
+    sample_id: UUID | None = None,
 ) -> TimeSeriesSample:
     series_type = get_series_type_from_id(series_type_definition_id)
     source = None
@@ -75,6 +76,8 @@ def _to_sample(
             device_type=data_source.device_type,
         )
     return TimeSeriesSample(
+        id=sample_id,
+        data_source_id=data_source.id if data_source else None,
         timestamp=timestamp,
         zone_offset=zone_offset,
         type=series_type,
@@ -324,6 +327,7 @@ class TimeSeriesService(
                 sample.value,
                 sample.is_daily_total,
                 data_source,
+                sample.id,
             )
             for sample, data_source in samples
         ]

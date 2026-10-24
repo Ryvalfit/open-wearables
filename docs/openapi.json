@@ -27,6 +27,257 @@
         }
       }
     },
+    "/api/v1/users/{user_id}/metrics/chart": {
+      "get": {
+        "tags": [
+          "Internal: Health Metrics"
+        ],
+        "summary": "Chart",
+        "operationId": "chart_api_v1_users__user_id__metrics_chart_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "metric",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/SeriesType"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Start"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "title": "End"
+            }
+          },
+          {
+            "name": "providers",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/ProviderName"
+              },
+              "maxItems": 5,
+              "title": "Providers"
+            }
+          },
+          {
+            "name": "time_zone",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "UTC",
+              "title": "Time Zone"
+            }
+          },
+          {
+            "name": "resolution",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ChartResolution",
+              "default": "AUTO"
+            }
+          },
+          {
+            "name": "max_points",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 2000,
+              "minimum": 10,
+              "default": 1000,
+              "title": "Max Points"
+            }
+          },
+          {
+            "name": "X-Open-Wearables-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Open-Wearables-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthChart"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{user_id}/metrics/availability": {
+      "get": {
+        "tags": [
+          "Internal: Health Metrics"
+        ],
+        "summary": "Availability",
+        "operationId": "availability_api_v1_users__user_id__metrics_availability_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Start"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "title": "End"
+            }
+          },
+          {
+            "name": "providers",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/ProviderName"
+              },
+              "maxItems": 5,
+              "title": "Providers"
+            }
+          },
+          {
+            "name": "metrics",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/SeriesType"
+              },
+              "minItems": 1,
+              "maxItems": 12,
+              "title": "Metrics"
+            }
+          },
+          {
+            "name": "X-Open-Wearables-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Open-Wearables-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MetricAvailability"
+                  },
+                  "title": "Response Availability Api V1 Users  User Id  Metrics Availability Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/meta/coverage": {
       "get": {
         "tags": [
@@ -963,6 +1214,71 @@
         "summary": "Delete Provider Data Endpoint",
         "description": "Delete all of a user's data for a provider and revoke the connection.",
         "operationId": "delete_provider_data_endpoint_api_v1_users__user_id__connections__provider__data_delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ProviderName"
+            }
+          },
+          {
+            "name": "X-Open-Wearables-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Open-Wearables-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{user_id}/connections/{provider}/resume-ingestion": {
+      "post": {
+        "tags": [
+          "External: Connections"
+        ],
+        "summary": "Resume Ingestion",
+        "operationId": "resume_ingestion_api_v1_users__user_id__connections__provider__resume_ingestion_post",
         "security": [
           {
             "OAuth2PasswordBearer": []
@@ -2043,6 +2359,16 @@
             }
           },
           {
+            "name": "include_total_count",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Include Total Count"
+            }
+          },
+          {
             "name": "X-Open-Wearables-API-Key",
             "in": "header",
             "required": false,
@@ -2694,6 +3020,35 @@
                 }
               ],
               "title": "Provider"
+            }
+          },
+          {
+            "name": "providers",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProviderName"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Providers"
+            }
+          },
+          {
+            "name": "overlap_window",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Overlap Window"
             }
           },
           {
@@ -12176,6 +12531,159 @@
         "title": "BulkProviderSettingsUpdate",
         "description": "Schema for bulk updating provider enabled/disabled state."
       },
+      "ChartPoint": {
+        "properties": {
+          "start_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start At"
+          },
+          "end_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End At"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum"
+          },
+          "maximum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maximum"
+          },
+          "sample_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Count"
+          },
+          "representation": {
+            "type": "string",
+            "title": "Representation"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start_at",
+          "value",
+          "representation"
+        ],
+        "title": "ChartPoint"
+      },
+      "ChartResolution": {
+        "type": "string",
+        "enum": [
+          "AUTO",
+          "RAW",
+          "MINUTE",
+          "FIVE_MINUTES",
+          "FIFTEEN_MINUTES",
+          "HOUR",
+          "DAY",
+          "WEEK"
+        ],
+        "title": "ChartResolution"
+      },
+      "ChartSeries": {
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/HealthSource"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/ChartPoint"
+            },
+            "type": "array",
+            "title": "Points"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "points"
+        ],
+        "title": "ChartSeries"
+      },
+      "ChartSummary": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "sample_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Count"
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum"
+          },
+          "maximum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maximum"
+          }
+        },
+        "type": "object",
+        "title": "ChartSummary"
+      },
       "CompletedPart": {
         "properties": {
           "part_number": {
@@ -13239,6 +13747,39 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "HealthChart": {
+        "properties": {
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          },
+          "effective_resolution": {
+            "$ref": "#/components/schemas/ChartResolution"
+          },
+          "history_precision": {
+            "type": "string",
+            "title": "History Precision"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ChartSummary"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/ChartSeries"
+            },
+            "type": "array",
+            "title": "Series"
+          }
+        },
+        "type": "object",
+        "required": [
+          "unit",
+          "effective_resolution",
+          "history_precision",
+          "summary"
+        ],
+        "title": "HealthChart"
+      },
       "HealthScore": {
         "properties": {
           "code": {
@@ -13399,6 +13940,47 @@
           "provider"
         ],
         "title": "HealthScoreResponse"
+      },
+      "HealthSource": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "data_source_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Data Source Id"
+          },
+          "app_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Name"
+          },
+          "device_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "data_source_id"
+        ],
+        "title": "HealthSource"
       },
       "HeartRateStats": {
         "properties": {
@@ -14241,6 +14823,45 @@
           "source"
         ],
         "title": "MenstrualCycleRecord"
+      },
+      "MetricAvailability": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "observation_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation Count"
+          },
+          "history_precision": {
+            "type": "string",
+            "title": "History Precision"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "provider",
+          "available",
+          "history_precision"
+        ],
+        "title": "MetricAvailability"
       },
       "MetricCount": {
         "properties": {
@@ -17945,6 +18566,30 @@
       },
       "TimeSeriesSample": {
         "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "data_source_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Source Id"
+          },
           "timestamp": {
             "type": "string",
             "format": "date-time",

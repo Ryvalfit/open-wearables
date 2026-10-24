@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from typing import TypedDict
+from uuid import UUID
 
 from pydantic import BaseModel
 
@@ -9,6 +10,8 @@ from app.utils.dates import ZoneOffset
 
 
 class TimeSeriesSample(BaseModel):
+    id: UUID | None = None
+    data_source_id: UUID | None = None
     timestamp: datetime
     zone_offset: ZoneOffset = None
     type: SeriesType
